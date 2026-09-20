@@ -18,6 +18,11 @@ namespace AbstractAccount
         private const int MaxUserOperationMethodLength = 128;
         private const int MaxUserOperationSignatureLength = 1024;
 
+        // The platform syscall interprets this value in datoshi. 1,000,000,000
+        // datoshi is 10 GAS, the maximum resource budget for each verifier callback,
+        // including nested verifier calls; NeoVM enforces the ancestor budget transitively.
+        private const long VerifierGasLimit = 1_000_000_000;
+
         // ========================================================================
         // 3. Core Routing: Validation and Execution (aligned with 4337 Validate & Call)
         // ========================================================================
@@ -56,7 +61,12 @@ namespace AbstractAccount
                 if (state.Verifier != UInt160.Zero)
                 {
                     // Delegate to plugin for signature verification (e.g., ecrecover or TEE hardware)
-                    bool isValid = (bool)Contract.Call(state.Verifier, "validateSignature", CallFlags.ReadOnly, new object[] { accountId, op });
+                    bool isValid = (bool)Contract.CallWithGasLimit(
+                        state.Verifier,
+                        "validateSignature",
+                        CallFlags.ReadOnly,
+                        VerifierGasLimit,
+                        new object[] { accountId, op });
                     ExecutionEngine.Assert(isValid, "Verifier rejected signature");
                 }
                 else
@@ -123,7 +133,12 @@ namespace AbstractAccount
                     }
                     if (state.Verifier != UInt160.Zero)
                     {
-                        Contract.Call(state.Verifier, "postExecute", CallFlags.All, new object[] { accountId, op, result });
+                        Contract.CallWithGasLimit(
+                            state.Verifier,
+                            "postExecute",
+                            CallFlags.All,
+                            VerifierGasLimit,
+                            new object[] { accountId, op, result });
                     }
 
                     OnUserOpExecuted(accountId, op.TargetContract, op.Method, op.Nonce);

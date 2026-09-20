@@ -2,13 +2,17 @@
 
 ## Status
 
-The current AA formal artifacts live in the sibling local
-`neo-os-formal-verification` workspace.
+The repository-local formal artifacts under `formal/` are the inputs to the
+fail-closed gate below; the sibling local `neo-os-formal-verification`
+workspace carries the parallel verification set.
 
-The fail-closed run on 2026-09-18 completed with **79 passed, 0 failed**.
-This result is a verification of the stated abstract models and arithmetic
-obligations; it is not a claim that the deployed NEF is fully formally
-verified.
+The current fail-closed AA-local gate passed on 2026-09-21: **5 Coq modules,
+72 closed declarations, 30 semantic mutations rejected, 61,460 TLC distinct
+states, and 6 SMT obligations with 6 controls**. The host run and the same
+source snapshot in the cached-base Docker BuildKit stage both passed; the
+runner regression suite is **20/20 OK**. This verifies the stated abstract
+models and arithmetic obligations, not a claim that a deployed NEF is fully
+formally verified.
 
 Run from the formal-verification workspace:
 
@@ -56,15 +60,17 @@ formal/verify-in-docker.sh
 
 It builds `formal/Dockerfile` (Ubuntu 24.04, Coq 8.18, Z3, OpenJDK, the TLA+
 tools jar verified against a pinned SHA-256) and runs both the gate and the
-runner's regression tests inside it, writing results under
-`formal/.runs/docker`. **Status:** the image has not yet been built and run
-end to end; in the authoring environment the build stalled at Docker Hub
-access, so the environment is provided as a pinned recipe, not as evidence.
+runner's regression tests inside it. On 2026-09-21 the current source snapshot
+executed successfully in a cached-base Docker BuildKit `RUN` stage: the formal
+gate passed and the runner tests were **20/20 OK**. The exported result is
+retained under `formal/.runs/docker-build-20260921-cached2` and is recorded in
+`docs/reports/aa-formal-gate-20260921.json`. The ordinary
+`docker run` wrapper still hit a Docker Desktop start/API hang in this local
+environment, so that wrapper path itself is not claimed as executed evidence;
+the BuildKit stage is the completed in-container execution.
 Its compatibility claim (the models use only `List`, `Bool`, `PeanoNat` and
-`Lia` lemmas present since Coq 8.16) has been exercised on Rocq 9.2 only. The
-first successful in-container run should be recorded in a dated receipt
-before the environment is cited as an independent-review result, and only
-then is a CI job that invokes the script worth adding.
+`Lia` lemmas present since Coq 8.16) has now been exercised on both Rocq 9.2
+on the host and Coq 8.18 in the pinned image.
 
 **CI status:** `.github/workflows/ci.yml` runs `scripts/verify_repo.sh`, which
 does not run the formal gate unless `--formal` or `NEOOS_REQUIRE_FORMAL=1` is
@@ -84,6 +90,8 @@ models under `verified/` for its own `verify.sh`.
 | `formal/coq/UnifiedSmartWalletAA.v` (sibling: `verified/coq/`) | Closed Coq proofs for authorization, exact channel nonce use, rollback, reentrancy, escape-owner gating and success-only state transitions |
 | `formal/coq/MultiSigPolicy.v` | Closed bounded threshold-policy proofs for configuration validity, exact signature cardinality and threshold support; child identity is abstract |
 | `formal/coq/ProxyWitnessScript.v` | Byte-level model of the proxy-witness transaction-script parser (`ScriptIsSingleExecuteCall`, `ScriptPrefixIsDataPushes`, `DataPushInstructionSize`): an accepted script is a data-push walk landing exactly on the expected `executeUserOp`/`executeUserOps` call, every instruction start in that walk is a data-push opcode (so no SYSCALL/CALL/JMP/TRY precedes the core call), acceptance binds account id and core hash, and the canonical shapes are reachable while a leading non-push opcode, a foreign account id, an out-of-range CallFlags push and a trailing instruction are rejected |
+| `formal/coq/CallbackPluginTopology.v` | Closed abstract correspondence model for the six-field hook callback tuple, success/callback ordering, CalledByEntry/Custom target binding, and fail-closed plugin cleanup/rotation; it is not a proof of NeoVM dispatch or arbitrary plugin storage |
+| `formal/coq/VerifierGasBudget.v` | Closed abstract model of bounded callback charging: every charge checks the callback and all ancestor budgets before mutation, exhaustion is atomic, and nested callbacks cannot escape an ancestor cap |
 | `formal/tla/UnifiedSmartWalletAA.tla` (sibling: `verified/tla/`) | Finite state-machine exploration of Begin/success/failure/Tick transitions |
 | `formal/tla/UnifiedSmartWalletAA.cfg` | TLC bounds and safety invariants |
 | `formal/smt/aa_core.smt2` (sibling: `verified/smt/`) | Nonce arithmetic, cursor advancement, rollback equalities, reimbursement cap and budget arithmetic |
@@ -97,19 +105,22 @@ models under `verified/` for its own `verify.sh`.
 
 ### Verifier resource-boundary status
 
-The current AA artifact still calls verifiers through the published
-`System.Contract.Call` surface, so VULN-001 is open for that artifact. A
-platform-level remedy is specified in
-`docs/proposals/AA-VERIFIER-GAS-BUDGET-EXTENSION-20260920.md`: the proposed
-`System.Contract.CallWithGasLimit` enforces a child budget in NeoVM and passes
-ordinary and nested descendant charges through the ancestor budget chain. The
-isolated Neo core prototype has 7/7 targeted vectors and the full core unit
-suite has 1,433/1,433 passes, but the AA contract has not yet been compiled
-against that future DevPack surface or deployed to a node with the hardfork
-active. These platform results therefore do not close the current AA finding.
+The current AA source and NEF call verifiers through
+`System.Contract.CallWithGasLimit`, with a 1,000,000,000-datoshi (10 GAS)
+callback budget. The matching Neo core/DevPack runtime activates the syscall
+at `HF_Iara`; ordinary nested calls and bounded descendants consume the
+ancestor chain, and whitelist charging cannot bypass it. The isolated core
+passes 9/9 targeted vectors and 1,435/1,435 full unit tests. A fresh private
+NeoExpress chain activates the hardfork at block 0, drives an adversarial
+burning verifier to `Contract call gas limit exceeded`, confirms nonce
+rollback, and reads all 25 deployed artifacts back with byte-identical NEF
+scripts and matching manifests. This closes VULN-001 for the matching private
+artifact only; no public activation or deployment was performed. The current
+receipts are `docs/reports/aa-platform-gas-cap-20260921.json` and
+`docs/reports/aa-neoexpress-gas-cap-20260921.json`.
 
 The models do not prove cryptography, witness-rule or script parsing
-correctness, full Neo VM semantics, or full callback refinement, session lifecycle,
+correctness, full Neo VM semantics, or C#-to-NEF callback refinement, session lifecycle,
 paymaster policy resolution, or C#-to-NEF/deployed-bytecode equivalence.
 The MultiSig model separately proves only the finite policy layer: non-empty,
 at-most-ten, nonzero/distinct child identifiers, threshold bounds, exact
@@ -216,8 +227,8 @@ before configuration storage; MultiHook rejects incomplete child hooks before st
 declared child methods are semantically safe, cryptographically independent, or
 free of multi-contract cycles. The
 formal gate itself was re-run on
-2026-09-20 against the latest source pins: 3 Coq modules (54 closed
-declarations, 17 rejected semantic mutations), TLC over 61,460 distinct states
+2026-09-21 against the latest source pins: 5 Coq modules (72 closed
+declarations, 26 rejected Coq semantic mutations), TLC over 61,460 distinct states
 with 4 rejected mutations, and 6 SMT obligations with 6 satisfiable controls.
 The runner resolves a working Java runtime itself (an explicit `JAVA_BIN` is
 honoured verbatim; otherwise `JAVA_HOME`, the macOS locator, the Homebrew
@@ -231,32 +242,39 @@ readback only. The read-only public comparison found the known
 canonical TestNet/MainNet artifacts differ from the current local artifact; deployment of the
 current artifact remains a separate approval-gated operation.
 
-A full private-chain validation on 2026-09-20 (`scripts/neoexpress_validate.py`, opt-in
+A full private-chain validation on 2026-09-21 (`scripts/neoexpress_validate.py`, opt-in
 through `scripts/verify_repo.sh --neoexpress`) deployed all 24 `contracts/bin/v3` artifacts
-to a fresh single-node NeoExpress chain, drove 10 scenarios with 65 halted transactions and
-23 expected faults, checked 51 on-chain assertions, advanced 4,669,200 s of simulated block
-time, and read every deployed contract back over JSON-RPC with a byte-identical NEF script,
-matching checksum and semantically equal manifest:
-`docs/reports/aa-neoexpress-validation-20260920.json`. The scenarios cover native
+plus the sibling `NeoDIDRegistry` artifact to a fresh single-node NeoExpress chain, drove
+12 scenarios with 73 halted transactions and 26 expected faults, checked 61 on-chain
+assertions, advanced 4,669,200 s of simulated block time, and read every deployed contract
+back over JSON-RPC with a byte-identical NEF script, matching checksum and semantically equal
+manifest: `docs/reports/aa-neoexpress-gas-cap-20260921.json`. The scenarios cover native
 backup-owner execution with nonce lanes, replay, witness, deadline and size bounds; the
 escape hatch with cooldown and timelock; the whitelist hook callback tuple; the lifecycle-ABI
 pre-check for every plugin; relay-only session-key submission with a real P-256 signature;
-sponsored settlement whose zero-fee estimate equals the persisted gas to the datoshi;
+sponsored settlement whose private pre-submission estimate equals the persisted gas to the datoshi;
 recovery-verifier rotation with cleanup and oracle-credit refund; MultiSig and MultiHook
-child pre-checks; a market sale, an owner escape and a silent market; and subscription pulls
-from the proxy asset address. The run found three defects the unit suite had not: the
-reimbursement cap faulted the zero-fee estimation container, the first fix under-estimated the
-system fee by the instructions its early return skipped, and a merchant pull needs a signer
-scope that reaches the verifier (see `SECURITY_MODEL.md`). The core artifact changed with the
-branch-free cap, so the earlier readback receipts describe the previous core NEF and this
-receipt is the current one. It remains local-chain evidence: neoxp signs with wallet accounts
-under CalledByEntry or Global, so the proxy verification-trigger witness path is covered by
-the runtime tests and the Coq model rather than by this receipt.
+child pre-checks; the bounded adversarial verifier callback; a market sale, an owner escape and a silent market; subscription pulls from
+the proxy asset address; and a hand-built, P-256-signed transaction carrying the real proxy
+verification script and `WitnessRules` signer, which consumed a NeoDID action ticket and
+proved replay and retarget refusal. The earlier private-chain iterations found three defects
+the unit suite had not: the reimbursement cap initially faulted the pre-submission estimation container, the
+first fix under-estimated the system fee by the instructions its early return skipped, and a
+merchant pull needs a signer scope that reaches the verifier (see `SECURITY_MODEL.md`). The
+latest receipt records the corrected implementation, including the bounded verifier callback,
+and remains local-chain evidence; it does not establish public deployment parity.
 
 The current standalone checkout without the sibling `NeoDIDRegistry` artifact passed
 **290/292** and records exactly the two cross-repository DID cases as explicit
 skips; it does not count those cases as passes. The earlier 289/291 result is
 historical, from before the zero-fee estimation regression test was added.
+
+The current source-to-artifact replay independently compiled the scratch tree
+with the matching private compiler and compared **76/76** NEF/manifest files
+byte-for-byte with `contracts/bin/v3`; no artifact was missing or drifted. The
+historical `contracts/build` tree remains an explicitly reported provenance
+anchor rather than an expected match. See
+`docs/reports/aa-artifact-reproducibility-20260921.json`.
 
 The two AA-to-DID cross-contract cases require the sibling `NeoDIDRegistry`
 build artifact. They passed in the gated run with

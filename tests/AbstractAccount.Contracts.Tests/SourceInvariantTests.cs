@@ -256,7 +256,9 @@ public class SourceInvariantTests
 
         // Verify both authorization paths exist
         StringAssert.Contains(executionSource, "state.Verifier != UInt160.Zero", "Verifier path check");
-        StringAssert.Contains(executionSource, "Contract.Call(state.Verifier, \"validateSignature\", CallFlags.ReadOnly", "Verifier delegate call");
+        StringAssert.Contains(executionSource, "Contract.CallWithGasLimit(", "Verifier bounded delegate call");
+        StringAssert.Contains(executionSource, "\"validateSignature\"", "Verifier method");
+        StringAssert.Contains(executionSource, "VerifierGasLimit", "Verifier gas cap");
         StringAssert.Contains(executionSource, "Runtime.CheckWitness(state.BackupOwner!)", "Native fallback CheckWitness");
         StringAssert.Contains(executionSource, "Reentrant call rejected", "Reentrancy guard");
         StringAssert.Contains(executionSource, "SetExecutionLock(accountId)", "Lock set");

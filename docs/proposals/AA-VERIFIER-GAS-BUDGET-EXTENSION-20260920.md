@@ -1,7 +1,7 @@
 # AA Verifier Gas-Budget Extension
 
-**Status:** Draft platform-extension proposal  
-**Date:** 2026-09-20  
+**Status:** Draft platform-extension proposal; private integration validated, public activation pending
+**Date:** 2026-09-21
 **Scope:** NeoVM / DevPack capability required by the Neo N3 AA profile
 
 ## Abstract
@@ -19,10 +19,10 @@ by all descendants. It is intended to let the AA core call a verifier without
 allowing that verifier to consume the whole transaction budget.
 
 The implementation has been prototyped in isolated Neo core and DevPack
-worktrees. The current `neo-os-aa` artifact still uses the published
-`Neo.SmartContract.Framework` 3.9.1 surface and does **not** claim to use this
-syscall until the platform dependency is versioned, activated, compiled into
-the AA contract, and read back from a node.
+worktrees and integrated into the current `neo-os-aa` artifact with
+`Neo.SmartContract.Framework` 3.10.2-CI00384. A matching private NeoExpress
+runtime activates `HF_Iara` at block 0 and reads the resulting artifacts back
+over JSON-RPC. No public activation, deployment or broadcast is claimed.
 
 ## Motivation and threat model
 
@@ -162,12 +162,12 @@ The platform implementation MUST pass at least these vectors:
 - target state and notifications roll back on budget exhaustion;
 - the syscall is unavailable before hardfork activation.
 
-The current isolated prototype passes all seven engine vectors listed in the
-platform receipt, including child-state rollback and pre-hardfork syscall
-rejection, plus the compiler emission smoke test. The whitelist, rollback in
-the integrated AA core, hardfork activation, AA-core integration, and
-deployed-node readback vectors remain required before this proposal can be
-marked implemented.
+The current isolated prototype passes all nine engine vectors listed in the
+current platform receipt, including child-state rollback, ancestor-budget
+inheritance, whitelist charging and pre-hardfork syscall rejection, plus the
+compiler emission smoke test. The integrated AA contract and private-chain
+readback also pass; public activation and target-node parity remain required
+before this proposal can be marked generally implemented.
 
 ## Security and coverage boundary
 
@@ -181,17 +181,19 @@ Those remain separate AA and platform assurance obligations.
 | Gate | Result |
 | --- | --- |
 | Neo core prototype | Implemented in isolated worktree |
-| Neo core targeted vectors | 7/7 passed |
-| Neo core full unit suite | 1,433/1,433 passed |
+| Neo core targeted vectors | 9/9 passed |
+| Neo core full unit suite | 1,435/1,435 passed |
 | DevPack framework build | Passed |
 | DevPack compiler syscall smoke | Passed |
 | DevPack compiler unit suite on published core | 1,359/1,359 passed |
-| Published DevPack framework suite | Blocked by the expected core-package version mismatch until the matching Neo package is published |
-| Current AA source uses syscall | No |
-| Current AA artifact uses syscall | No |
-| Private NeoExpress with syscall-enabled AA | Not yet run; current local readback is for the pre-extension artifact |
+| Published DevPack framework suite | Matching private package consumed; upstream publication remains pending |
+| Current AA source uses syscall | Yes; `Contract.CallWithGasLimit` with 1,000,000,000 datoshi |
+| Current AA artifact uses syscall | Yes; NEF contains the syscall hash `c45fbc51` |
+| AA contract tests | 292/292 passed |
+| Private NeoExpress with syscall-enabled AA | PASS; 25 artifacts, 12 scenarios, 73 halted transactions, 26 expected faults, 61 assertions, RPC readback parity |
 | Public network activation/readback | Not performed |
 
-Until the remaining integration gates pass, VULN-001 remains open for the
-currently deployed AA artifact. This document is intentionally not a claim of
-production security.
+The private evidence mitigates VULN-001 for the matching local artifact. It is
+not a production-security claim: public activation/deployment, target-node
+parity, cryptographic and witness semantics, complete NeoVM refinement,
+arbitrary plugin-cycle absence, and independent external audit remain open.

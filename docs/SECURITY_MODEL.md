@@ -189,7 +189,7 @@ rejects an unlisted target before dispatch, and rolls back the nonce on rejectio
 
 ### 5.2 Should-Hold Invariants
 
-1. **Gas Limits on Verifiers:** *(OPEN)* Verifier execution still needs explicit gas/resource accounting.
+1. **Gas Limits on Verifiers:** *(PRIVATE INTEGRATION VERIFIED; PUBLIC ACTIVATION PENDING)* The matching Neo core/DevPack runtime enforces a 10 GAS child budget for each verifier callback, including ordinary nested descendants and fee-whitelisted execution.
 2. **Plugin State Cleanup:** *(PARTIAL)* Current settlement clears known plugin markers and rejects modules whose manifest omits the V3 lifecycle ABI; semantic cleanup/refinement coverage for arbitrary future plugins is pending.
    Every verifier and hook must implement `clearAccount`: the core calls it without a fallback from
    `confirmVerifierUpdate`, `confirmHookUpdate`, `finalizeEscape` and `settleMarketEscrow`, and a
@@ -219,39 +219,45 @@ rejects an unlisted target before dispatch, and rolls back the nonce on rejectio
 
 | ID | Severity | Component | Description | Status |
 | --- | --- | --- | --- |
-| **VULN-001** | Critical | **Verifier Gas DoS** | Current AA artifact still uses unbounded verifier `Contract.Call`; platform budget prototype is not integrated | Open / current artifact exposed; integration pending |
+| **VULN-001** | Critical | **Verifier Gas DoS** | Untrusted verifier callbacks are bounded by `System.Contract.CallWithGasLimit` in the current AA artifact | Mitigated for the matching private-chain artifact; public activation/deployment pending |
 | **VULN-002** | High | **Escape Hatch Bypass** | Market settlement intentionally clears escape; owner cancellation is timelocked | Mitigated in source; refinement/deployment unverified |
 | **VULN-003** | Medium | **Session Key Ordering** | A signed operation can execute before a later revocation transaction is ordered | Defined execution-order semantics; residual pre-inclusion operational risk |
 | **VULN-004** | Medium | **MultiSig Empty Array** | Empty, oversized, invalid-threshold, duplicate, self-referential and incomplete-child configurations | Bounded Coq policy + 11 real Neo VM vectors + child manifest preflight; key independence, cycles, crypto/VM/refinement boundary remains open |
 | **VULN-005** | Medium | **Plugin State Orphaning** | Settlement cleanup is finite and not proven for every plugin | Manifest lifecycle preflight for core, MultiSig and MultiHook plus fail-closed cleanup; arbitrary-plugin storage/refinement coverage remains open |
 | **VULN-006** | Low | **Nonce Collision** | Legacy salt wording; current core uses 192-bit channel + 64-bit sequence with uint256 bound | Fixed in protocol core; transport/refinement unverified |
 
-**VULN-001 closure gate:** the current NeoVM `Contract.Call` surface exposes no
-per-verifier gas budget or independent gas meter. `Runtime.GasLeft`/`BurnGas`
-can provide diagnostics or voluntary accounting, but they do not establish a
-non-bypassable cap around an untrusted child call. This item therefore remains
-open; it must not be relabeled mitigated by a local pre-check or by total
-transaction gas limits. Closure requires a platform-level call-budget
-capability, or a redesigned verifier boundary with an independently bounded
-execution path, plus exhaustion and rollback vectors.
-
-An isolated Neo core/DevPack platform prototype now implements the required
-capability as `System.Contract.CallWithGasLimit`, with an ancestor-inherited
-budget and fail-closed exhaustion. The prototype has 7/7 targeted engine
-vectors and 1,433/1,433 Neo core unit tests, but the current AA artifact still
-uses the published 3.9.1 framework and has not been compiled, activated, or
-read back with the new syscall. See
-`docs/proposals/AA-VERIFIER-GAS-BUDGET-EXTENSION-20260920.md`. VULN-001
-therefore remains open and must not be marked mitigated yet.
+**VULN-001 closure gate:** a transaction-wide gas limit or voluntary
+`Runtime.GasLeft`/`BurnGas` accounting is insufficient. The current private
+artifact instead uses the platform-level `System.Contract.CallWithGasLimit`
+capability. Its 1,000,000,000-datoshi (10 GAS) budget is charged against the
+child and every ancestor before counters mutate; ordinary nested calls inherit
+the budget and fee whitelisting cannot bypass it. The matching core passes 9/9
+targeted vectors and 1,435/1,435 full unit tests. The matching AA artifact
+passes 292/292 contract tests, and the private NeoExpress receipt drives a
+burning verifier to `Contract call gas limit exceeded` with nonce rollback and
+25-artifact RPC readback parity. See
+`docs/reports/aa-platform-gas-cap-20260921.json` and
+`docs/reports/aa-neoexpress-gas-cap-20260921.json`. VULN-001 is mitigated for
+this private integrated artifact; public activation and deployment remain
+pending.
 
 **Witness/callback evidence boundary:** the runtime suite now covers bounded proxy-script shape
 vectors (wrong account, arbitrary/non-data instructions, decoy/global signer, and fee-payer
 cases) and the shipped hook callback tuple, and the transaction-script shape parser itself has a
 closed Coq model (`formal/coq/ProxyWitnessScript.v`) proving that an accepted script is data
 pushes followed by exactly the expected core call, with the account id and core hash bound.
-This is implementation evidence plus a parser-shape proof, not a formal proof of NeoVM witness
-condition evaluation, signer scopes, cryptographic primitives, arbitrary plugins, or full
-callback refinement.
+The bounded callback model (`formal/coq/CallbackPluginTopology.v`) additionally proves the
+six-field callback binding, success/callback order, CalledByEntry/Custom target binding, and
+fail-closed cleanup/rotation invariant. These are implementation evidence plus abstract proofs,
+not a formal proof of NeoVM witness-condition evaluation, signer scopes, cryptographic
+primitives, arbitrary plugins, or C#-to-NEF callback refinement.
+The isolated NeoExpress receipt now also drives the concrete boundary with a hand-built,
+P-256-signed transaction: a real proxy verification script is carried by a `WitnessRules`
+signer scoped to both the AA core and `NeoDIDRegistry`, consumes an action ticket, and rejects
+same-nullifier replay and action-id retargeting. The receipt deploys 25 artifacts, runs 12
+scenarios, and reads every deployed artifact back byte-identically over RPC. This is private-chain
+evidence only; it does not prove arbitrary witness rules, cryptography, full NeoVM semantics,
+or public deployment parity.
 The core also rejects oversized verifier signatures and argument arrays before nonce
 consumption or external dispatch. This is input-amplification mitigation only; it cannot cap a
 verifier that is already executing inside the shared NeoVM gas budget.
@@ -437,9 +443,9 @@ stateDiagram-v2
 
 ### 11.1 Critical Priority
 
-1. **Verifier Gas Limits:** Integrate and activate the platform
-   `System.Contract.CallWithGasLimit` extension; do not rely on an ABI gas
-   parameter or voluntary verifier accounting.
+1. **Verifier Gas Limits:** Publish/activate the matching Neo core and DevPack,
+   then verify target-node NEF/manifest/runtime parity; do not rely on an ABI
+   gas parameter or voluntary verifier accounting.
 2. **Deployed Refinement:** Prove/read back that the hardened source and formal boundary match deployed NEF
 3. **Session Key Cancellation UX:** Relayers and wallets must re-check canonical key state before submission; cancellation is not a chain-level rollback primitive
 

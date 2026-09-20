@@ -176,7 +176,13 @@ public class ContractTests
             "object result = Contract.Call(op.TargetContract, op.Method, CallFlags.All, op.Args);");
         Assert.IsFalse(executionSource.Contains("op.CallFlags", StringComparison.Ordinal));
         StringAssert.Contains(executionSource, "ConsumeNonce(accountId, op.Nonce);");
-        StringAssert.Contains(executionSource, "Contract.Call(state.Verifier, \"validateSignature\", CallFlags.ReadOnly, new object[] { accountId, op });");
+        StringAssert.Contains(executionSource, "Contract.CallWithGasLimit(");
+        StringAssert.Contains(executionSource, "state.Verifier,");
+        StringAssert.Contains(executionSource, "\"validateSignature\"");
+        StringAssert.Contains(executionSource, "CallFlags.ReadOnly");
+        StringAssert.Contains(executionSource, "private const long VerifierGasLimit = 1_000_000_000;");
+        Assert.IsFalse(executionSource.Contains("Contract.Call(state.Verifier", StringComparison.Ordinal));
+        StringAssert.Contains(executionSource, "VerifierGasLimit");
     }
 
     [TestMethod]
@@ -227,7 +233,11 @@ public class ContractTests
 
         StringAssert.Contains(
             executionSource,
-            "Contract.Call(state.Verifier, \"postExecute\", CallFlags.All, new object[] { accountId, op, result });");
+            "Contract.CallWithGasLimit(");
+        StringAssert.Contains(executionSource, "\"postExecute\"");
+        StringAssert.Contains(executionSource, "private const long VerifierGasLimit = 1_000_000_000;");
+        Assert.IsFalse(executionSource.Contains("Contract.Call(state.Verifier", StringComparison.Ordinal));
+        StringAssert.Contains(executionSource, "VerifierGasLimit");
     }
 
     [TestMethod]
@@ -532,7 +542,7 @@ public class ContractTests
         }
     }
 
-    private const string PinnedFrameworkVersion = "3.9.1";
+    private const string PinnedFrameworkVersion = "$(NeoSmartContractFrameworkVersion)";
 
     [TestMethod]
     public void ContractSubprojectsUseConsistentFrameworkVersionAndOptInNccs()

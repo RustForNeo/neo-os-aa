@@ -49,8 +49,12 @@ This index keeps the root documentation set visible and easy to browse.
 - `docs/reports/aa-neoexpress-readback-20260920.json` — historical post-callback-ABI readback; superseded by the current post-remediation receipt
 - `docs/reports/aa-neoexpress-readback-20260920-current.json` — post-remediation core NeoExpress readback of the core artifact before the branch-free reimbursement cap; local NEF/manifest parity verified then, public artifacts differ
 - `docs/reports/aa-neoexpress-validation-20260920.json` — full private-chain validation of the current artifacts: all 24 deployed to a fresh NeoExpress chain, 10 transaction-driven scenarios (65 halted transactions, 23 expected faults, 51 on-chain assertions), RPC readback parity for every contract; local-chain evidence only
+- `docs/reports/aa-neoexpress-gas-cap-20260921.json` — current matching-core private-chain validation: 25 artifacts, 12 scenarios, adversarial verifier gas-cap fault and nonce rollback, and RPC readback parity; no public network touched
 - `docs/reports/aa-public-readback-20260920.json` — read-only TestNet/MainNet AA core readback; known public artifacts differ from the current local artifact
 - `docs/reports/aa-platform-gas-cap-20260920.json` — isolated Neo core/DevPack verifier-budget prototype receipt; AA integration and hardfork activation remain pending
+- `docs/reports/aa-platform-gas-cap-20260921.json` — current Neo core/DevPack plus AA integration receipt; private NeoExpress verified, public activation/deployment pending
+- `docs/reports/aa-formal-gate-20260921.json` — current 5-Coq-module/30-mutation formal gate with cached-base Docker BuildKit evidence and 20/20 runner tests
+- `docs/reports/aa-artifact-reproducibility-20260921.json` — 76 current NEF/manifest artifacts reproduced byte-for-byte from the source tree; the historical `contracts/build` anchor is explicitly reported as intentional drift
 - `docs/reports/aa-current-revalidation-20260920.json` — independent read-only revalidation receipt; local runtime gates pass, while that environment's formal runner was unavailable and public parity remains open
 - `docs/SECURITY_AUDIT.md`
 - `docs/ETHEREUM_AA_COMPARISON.md`

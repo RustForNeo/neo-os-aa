@@ -4,6 +4,13 @@
 
 This document maps Ethereum ERC-4337 (Account Abstraction) and ERC-7579 (Modular Smart Account) concepts to the Neo N3 Abstract Account implementation. Understanding these mappings helps developers familiar with Ethereum AA adapt to the Neo ecosystem.
 
+> **Current-status note (2026-09-21):** This comparison is conceptual and
+> retains historical published-runtime limitation wording. The current private
+> AA artifact uses `System.Contract.CallWithGasLimit` with a 10 GAS verifier
+> callback cap; matching NeoExpress evidence is recorded in
+> `docs/reports/aa-neoexpress-gas-cap-20260921.json`. Public activation and
+> deployment remain pending.
+
 ---
 
 ## 1. Core Concept Mapping
@@ -104,10 +111,14 @@ flowchart TD
 - Single atomic transaction (no pre-validation separate call)
 - Verifier called with `CallFlags.ReadOnly` (no state changes)
 - Hooks enforce policies around execution
-- No per-op gas limits (see security note below)
+- Per-verifier callback cap is available in the current private artifact via
+  the platform extension; public activation remains pending
 - Paymaster optional (on-chain AAPaymaster or off-chain Morpheus)
 
-**Critical Difference:** Neo does NOT enforce gas limits on verifier calls. This is a **known vulnerability** - see SECURITY_AUDIT.md.
+**Historical critical difference:** the published runtime represented by this
+comparison did not enforce independent verifier gas limits. The current
+private integrated artifact does so with `CallWithGasLimit`; this is not yet a
+public-network activation claim.
 
 ---
 
@@ -351,11 +362,9 @@ relayMetaInvocation({ scriptHash: aaContract, operation: "executeUserOps", args:
 
 ## 11. Known Limitations vs Ethereum AA
 
-1. **Verifier Gas Budget:** The current AA artifact still permits a verifier to
-   consume the shared transaction budget. A platform-level bounded-call
-   extension is specified and prototyped, but it is not yet integrated into
-   the AA artifact; see
-   `docs/proposals/AA-VERIFIER-GAS-BUDGET-EXTENSION-20260920.md`.
+1. **Verifier Gas Budget:** Public activation of the matching platform
+   bounded-call extension remains pending. The current private artifact uses
+   `CallWithGasLimit`; see `docs/reports/aa-platform-gas-cap-20260921.json`.
 2. **Simpler Fee Model:** No per-op gas estimation hooks (Neo has fixed transaction fees).
 3. **No Staking Mechanism:** On-chain Paymaster uses direct GAS deposits, not staking.
 4. **Limited Aggregation:** `MultiHook` doesn't aggregate signatures like Ethereum aggregators.

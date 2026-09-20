@@ -26,6 +26,7 @@ namespace AbstractAccount.Mocks
     public class MockVerifierCore : SmartContract
     {
         private static readonly byte[] Prefix_BackupOwner = new byte[] { 0x01 };
+        private static readonly byte[] Prefix_BurnGas = new byte[] { 0x02 };
 
         // Test-only V3 surface used to model a plugin whose cleanup fails. The production AA
         // core must fail closed rather than silently transferring such a dirty shell.
@@ -33,7 +34,27 @@ namespace AbstractAccount.Mocks
         public static bool SupportsV3() => true;
 
         [Safe]
-        public static bool ValidateSignature(UInt160 accountId, object op) => true;
+        public static bool ValidateSignature(UInt160 accountId, object op)
+        {
+            ByteString? enabled = Storage.Get(Storage.CurrentContext, Prefix_BurnGas);
+            if (enabled != null && enabled.Length > 0 && enabled[0] == 1)
+            {
+                // Test-only adversarial verifier. The platform gas cap must stop
+                // this loop with the child-budget fault before it can consume an
+                // unbounded portion of the enclosing AA transaction.
+                ByteString digest = (ByteString)new byte[] { 0x01, 0x02, 0x03, 0x04 };
+                for (int i = 0; i < 2_000_000; i++)
+                    digest = CryptoLib.Sha256(digest);
+                return digest.Length > 0;
+            }
+            return true;
+        }
+
+        public static void SetBurnGas(bool enabled)
+        {
+            Storage.Put(Storage.CurrentContext, Prefix_BurnGas,
+                (ByteString)new byte[] { enabled ? (byte)1 : (byte)0 });
+        }
 
         public static void PostExecute(UInt160 accountId, object op, object result)
         {

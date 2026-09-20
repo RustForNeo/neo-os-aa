@@ -14,6 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent
 ARTIFACTS = {"coq/UnifiedSmartWalletAA.v", "coq/MultiSigPolicy.v",
              "coq/ProxyWitnessScript.v",
+             "coq/CallbackPluginTopology.v", "coq/VerifierGasBudget.v",
              "tla/UnifiedSmartWalletAA.tla",
              "tla/UnifiedSmartWalletAA.cfg", "smt/aa_core.smt2"}
 SOURCE_FILES = {"contracts/UnifiedSmartWallet.Execution.cs",
@@ -78,10 +79,40 @@ PROXY_WITNESS_COQ_MUTATIONS = {
     "witness-unknown-opcode": ("  else if op =? 219 then 2                            (* CONVERT <type> *)\n  else 0.",
                                "  else if op =? 219 then 2                            (* CONVERT <type> *)\n  else 1."),
 }
+CALLBACK_PLUGIN_COQ_MUTATIONS = {
+    # These mutations remove a concrete correspondence condition from the
+    # callback/scope/cleanup definitions.  A mutant that still compiles would
+    # mean the closed theorem roster did not depend on that condition.
+    "callback-target-binding": ("Nat.eqb t (target op)", "true"),
+    "callback-signature-binding": ("Nat.eqb s (signature op)", "true"),
+    "callback-post-order": ("&& target_ok && post_ok\n  then [Validate; PreHook; TargetCall; PostHook; Emit]",
+                             "&& target_ok && true\n  then [Validate; PreHook; TargetCall; PostHook; Emit]"),
+    "scope-entry-binding": ("CalledByEntry => Nat.eqb entry target", "CalledByEntry => true"),
+    "cleanup-fail-closed": ("if cleanup_ok\n  then", "if true\n  then"),
+}
+VERIFIER_GAS_BUDGET_COQ_MUTATIONS = {
+    # These mutations remove the concrete budget obligations.  They must make
+    # at least one closed theorem fail, otherwise the formal gate would not
+    # depend on the ancestor/atomicity conditions.
+    "budget-limit-check": (
+        "Nat.leb (budget_consumed budget + amount) (budget_limit budget)",
+        "true"),
+    "ancestor-conjunction": (
+        "can_charge budget amount && all_can_charge rest amount",
+        "can_charge budget amount || all_can_charge rest amount"),
+    "atomic-failure-state": (
+        "| None => (false, budgets)",
+        "| None => (false, [])"),
+    "nested-ancestor-requirement": (
+        "all_can_charge rest amount",
+        "true"),
+}
 COQ_MODULES = {
     "UnifiedSmartWalletAA.v": COQ_MUTATIONS,
     "MultiSigPolicy.v": MULTISIG_COQ_MUTATIONS,
     "ProxyWitnessScript.v": PROXY_WITNESS_COQ_MUTATIONS,
+    "CallbackPluginTopology.v": CALLBACK_PLUGIN_COQ_MUTATIONS,
+    "VerifierGasBudget.v": VERIFIER_GAS_BUDGET_COQ_MUTATIONS,
 }
 TLA_MUTATIONS = {
     "authorization": ("SuccessAuthorizationGuard == pendingAuthorized",

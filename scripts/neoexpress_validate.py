@@ -75,6 +75,8 @@ ESCAPE_TIMELOCK = 2_592_000          # 30 days, seconds
 DAY = 86_400
 FAR_DEADLINE = 4_102_444_800_000     # 2100-01-01 in ms
 GAS = 100_000_000
+VERIFIER_GAS_LIMIT_DATOSHI = 1_000_000_000  # 10 GAS per bounded verifier callback
+PRIVATE_EXECUTE_GAS_ENVELOPE = "200"       # NeoExpress-only transaction envelope
 
 
 class ValidationFailure(Exception):
@@ -368,6 +370,11 @@ class Chain:
         for name in WALLETS:
             self.nx("transfer", "5000", "GAS", "genesis", name)
         config = json.loads(self.file.read_text())
+        # The custom Neo core used by this private validation adds the bounded
+        # verifier syscall at HF_Iara. Activate that hardfork from block zero;
+        # this setting is local-chain-only and never touches a public network.
+        config.setdefault("settings", {})["protocol.Hardforks.HF_Iara"] = "0"
+        self.file.write_text(json.dumps(config, indent=2) + "\n")
         self.magic = config.get("magic")
         self.rpc_port = config["consensus-nodes"][0]["rpc-port"]
 
@@ -412,10 +419,17 @@ class Chain:
         return decode(stack[0]) if stack else None
 
     def estimate(self, contract, operation, args, account):
-        """Gas the pre-submission simulation charges for this invocation with the given signer:
-        the zero-fee container standard tooling prices a transaction with."""
+        """Measure the private-chain pre-submission simulation for this invocation.
+
+        Execute paths use the same explicit 200 GAS envelope as the persisted
+        NeoExpress transaction path, so the simulation reaches the bounded
+        verifier callback instead of failing on the outer transaction budget.
+        """
         path = self.invoke_file(contract, operation, list(args))
-        _, text = self.nx("contract", "invoke", str(path), account, "-r", "-j")
+        command = ["contract", "invoke", str(path), account, "-r", "-j"]
+        if operation in {"executeUserOp", "executeUserOps", "executeSponsoredUserOp"}:
+            command += ["-g", PRIVATE_EXECUTE_GAS_ENVELOPE]
+        _, text = self.nx(*command)
         result = self.json_from(text)
         if result.get("state") != "HALT":
             raise ValidationFailure(f"{contract}.{operation} estimation faulted: {result.get('exception')}")
@@ -431,6 +445,13 @@ class Chain:
     def tx(self, step, contract, operation, args, account, scope=None, expect_fault=None):
         path = self.invoke_file(contract, operation, list(args))
         command = ["contract", "invoke", str(path), account, "-j"]
+        # The bounded verifier syscall rejects a child cap larger than the caller's
+        # remaining execution budget. Give real execute paths an explicit private-chain
+        # fee envelope so the test exercises the child cap itself rather than an
+        # underfunded outer transaction. This is NeoExpress-only and never funds a
+        # public-network transaction.
+        if operation in {"executeUserOp", "executeUserOps", "executeSponsoredUserOp"}:
+            command += ["-g", PRIVATE_EXECUTE_GAS_ENVELOPE]
         if scope:
             command += ["-w", scope]
         rc, text = self.nx(*command, check=False)
@@ -729,6 +750,23 @@ def scenario_abi_precheck(c):
         c.register(f"verifier {name} passes the pre-check", verifier=c.contracts[name])
     for name in ("DailyLimitHook", "TokenRestrictedHook", "NeoDIDCredentialHook", "MultiHook"):
         c.register(f"hook {name} passes the pre-check", hook=c.contracts[name])
+
+
+def scenario_verifier_gas_cap(c):
+    c.scenario("bounded verifier callback gas")
+    verifier = c.contracts["MockVerifierCore"]
+    target = c.contracts["MockTransferTarget"]
+    account, proxy = c.register("register adversarial verifier", verifier=verifier)
+    c.tx("enable adversarial verifier burn", "MockVerifierCore", "setBurnGas", [BOOL(True)], "owner")
+    record = c.execute(
+        "verifier callback exceeds its independent budget",
+        account,
+        c.transfer_op(target, proxy, c.wallets["buyer"], 1, 0),
+        "owner",
+        expect_fault="Contract call gas limit exceeded")
+    c.check(record.get("expectedFault") == "Contract call gas limit exceeded",
+            "the NeoVM child-budget fault is surfaced by the AA invocation")
+    c.check(c.nonce(account) == 0, "a verifier budget fault rolls back nonce consumption")
 
 
 def scenario_session_key_and_paymaster(c, workdir):
@@ -1123,6 +1161,15 @@ def main():
         chain.create()
         receipt["network"] = {"kind": "isolated-private-single-node", "networkMagic": chain.magic,
                               "rpcHost": "127.0.0.1", "publicNetwork": False}
+        receipt["privateValidation"] = {
+            "platformSyscall": "System.Contract.CallWithGasLimit",
+            "activationHardfork": "HF_Iara",
+            "activationBlock": 0,
+            "verifierGasLimitDatoshi": VERIFIER_GAS_LIMIT_DATOSHI,
+            "verifierGasLimitGas": VERIFIER_GAS_LIMIT_DATOSHI // GAS,
+            "executeGasEnvelopeGas": int(PRIVATE_EXECUTE_GAS_ENVELOPE),
+            "scope": "private-chain-only; no public activation or broadcast",
+        }
         chain.deploy_all()
         receipt["deployments"] = chain.deployments
 
@@ -1136,6 +1183,8 @@ def main():
             scenario_hook(chain)
         if not only_did:
             scenario_abi_precheck(chain)
+        if not only_did:
+            scenario_verifier_gas_cap(chain)
         if not only_did:
             scenario_session_key_and_paymaster(chain, workdir)
         if not only_did:

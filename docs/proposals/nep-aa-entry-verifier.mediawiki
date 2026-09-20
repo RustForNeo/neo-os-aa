@@ -117,6 +117,13 @@ postExecute(accountId: Hash160, op: Array, result: Any) -> Void
 The core MUST call <code>validateSignature</code> with <code>CallFlags.ReadOnly</code>. The method MUST have a Boolean ABI result; false, a missing method, a wrong result type, or a VM failure rejects authorization.
 An installed verifier MUST implement <code>postExecute</code>; a verifier without accounting needs MAY implement it as a no-op. Its post-execution failure MUST fail the invocation.
 
+===Verifier resource accounting===
+
+Every configured verifier callback MUST execute inside a platform-enforced child resource budget that is independent of the enclosing transaction budget. A transaction-wide gas limit, a pre-call estimate, or verifier-supplied <code>Runtime.GasLeft</code>/<code>BurnGas</code> convention is not an equivalent bound.
+The budget MUST be enforced by the execution engine, MUST be applied to both <code>validateSignature</code> and <code>postExecute</code>, and MUST be inherited transitively by ordinary nested calls and nested bounded calls. A fee whitelist MUST NOT bypass the child budget. If the child or any ancestor budget is exhausted, the callback MUST fault and the enclosing application invocation MUST retain Neo application-state atomicity, including nonce and callback state rollback.
+
+The implementing profile MUST publish the budget unit, value, activation boundary and exhaustion semantics. The current NeoOS profile uses <code>System.Contract.CallWithGasLimit</code> with <code>1,000,000,000</code> datoshi (10 GAS) per verifier callback, activated by <code>HF_Iara</code>. An equivalent platform mechanism MAY be used only if it provides the same non-bypassable ancestor accounting and fail-closed behavior. A verifier call through an unbounded ordinary <code>System.Contract.Call</code> does not conform to this resource-boundary requirement.
+
 ==== Revocable delegated authorizations ====
 
 If a verifier exposes a revocable delegated credential such as a session key,
@@ -200,6 +207,7 @@ A conforming implementation and its selected profiles MUST supply reproducible v
 * Valid authorization and rejection of invalid or mismatched authorization domains.
 * Native witness scopes and distinct Verification/Application trigger behavior.
 * Hook and verifier callback order, permitted caller contexts and state rollback.
+* Verifier child-budget exhaustion, ancestor inheritance, fee-whitelist charging and pre-activation rejection.
 * Target Boolean false versus VM fault, batch atomicity and same-account reentrancy rejection.
 * Migration behavior and native activation boundaries, where applicable.
 
@@ -207,9 +215,9 @@ Such vectors are release requirements; this draft's list is not itself an execut
 
 ==Implementation==
 
-[https://github.com/r3e-network/neo-os-aa/tree/afe483af74d09bfc428573b8f50cefd8057c10f1 neo-os-aa at afe483a] provides implementation experience for <code>executeUserOp</code>, two-dimensional nonces, verifier/hook callbacks and recovery.
-It is an ordinary deployed-contract implementation, not an implementation of a node-native <code>AccountManagement</code> contract or proof of full conformance with this revised foundation.
-Known areas requiring explicit alignment include address-script call flags, argument/signing profiles and numeric boundary behavior.
+[https://github.com/r3e-network/neo-os-aa neo-os-aa] provides implementation experience for <code>executeUserOp</code>, two-dimensional nonces, verifier/hook callbacks, recovery and the bounded verifier resource boundary.
+The current local artifact uses <code>System.Contract.CallWithGasLimit</code> and has passed the private NeoExpress validation recorded in <code>docs/reports/aa-neoexpress-gas-cap-20260921.json</code>, including adversarial callback exhaustion, nonce rollback and NEF/manifest RPC readback parity.
+It is an ordinary deployed-contract implementation, not an implementation of a node-native <code>AccountManagement</code> contract, a public-network activation, or a proof of full conformance with this revised foundation. Known areas requiring explicit alignment include address-script call flags, argument/signing profiles, complete NeoVM refinement and cryptographic/witness semantics.
 
 ==Revision provenance==
 

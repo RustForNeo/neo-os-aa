@@ -21,6 +21,6 @@
     <Compile Include="MorpheusSocialRecoveryVerifier.V3.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Neo.SmartContract.Framework" Version="3.9.1" />
+    <PackageReference Include="Neo.SmartContract.Framework" Version="$(NeoSmartContractFrameworkVersion)" />
   </ItemGroup>
 </Project>
