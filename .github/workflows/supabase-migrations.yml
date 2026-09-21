@@ -13,6 +13,11 @@ on:
       - 'supabase/**'
       - '.github/workflows/supabase-migrations.yml'
 
+# Replays migrations against a throwaway service container; nothing is written
+# back to the repository.
+permissions:
+  contents: read
+
 jobs:
   replay:
     runs-on: ubuntu-latest
@@ -35,7 +40,9 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: postgres
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Create Supabase API roles
         run: psql -v ON_ERROR_STOP=1 -c 'create role anon nologin; create role authenticated nologin;'
       - name: Replay migration chain in filename order
