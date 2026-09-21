@@ -1,7 +1,7 @@
-# AA Proposal Relationship and Protocol Scope
+# SmartAccount Proposal Relationship and Protocol Scope
 
 **Review date:** 2026-09-21
-**Purpose:** Record the relationship between the existing Neo AA proposals and the protocol boundary of the revised foundation.
+**Purpose:** Record the relationship between the existing Neo SmartAccount proposals and the protocol boundary of the revised foundation.
 **Status:** Editorial and architectural guidance; not a NEP assignment, implementation claim, or community decision.
 
 ## 1. Existing proposal history
@@ -9,12 +9,12 @@
 | Identifier | Title | Status | Protocol relationship |
 |---|---|---|---|
 | [#165](https://github.com/neo-project/proposals/pull/165) | New Proposal: add meta transaction proposal | Closed, not merged | Historical motivation; does not define the current operation or witness model. |
-| [#218](https://github.com/neo-project/proposals/pull/218) | Draft: Contract-based Verification Script Standard | Open | Generic witness-script layer; remains independent of the AA execution state machine. |
+| [#218](https://github.com/neo-project/proposals/pull/218) | Draft: Contract-based Verification Script Standard | Open | Generic witness-script layer; remains independent of the SmartAccount execution state machine. |
 | [#219](https://github.com/neo-project/proposals/pull/219) | Draft: Transferable Abstract Account Standard | Closed, not merged | Optional control-transfer extension. |
 | [#220](https://github.com/neo-project/proposals/pull/220) | Draft: Abstract Account Metadata Standard | Closed, not merged | Optional presentation and discovery extension. |
 | [#221](https://github.com/neo-project/proposals/pull/221) | Draft: Abstract Account Entry Contract and Custom Verifier Standard | Closed, not merged | Direct predecessor of the revised protocol foundation. |
-| [#242](https://github.com/neo-project/proposals/issues/242) | Proposal: Neo Native Account Abstraction (AA) Standard | Open issue | Native AccountManagement profile that may build on the foundation. |
-| [#243](https://github.com/neo-project/proposals/pull/243) | Draft: Revise AA entry proposal as protocol foundation for AccountManagement | Draft PR | Current deployment-independent protocol foundation. |
+| [#242](https://github.com/neo-project/proposals/issues/242) | Proposal: Neo Native SmartAccount Standard | Open issue | Native SmartAccount profile that may build on the foundation. |
+| [#243](https://github.com/neo-project/proposals/pull/243) | Draft: SmartAccount Protocol Foundation for Native AccountManagement | Draft PR | Current deployment-independent protocol foundation. |
 
 Closed proposals are historical references. Closed status must not be interpreted as either adoption or formal rejection by the Neo protocol.
 
@@ -23,8 +23,8 @@ Closed proposals are historical references. Closed status must not be interprete
 The proposals have three distinct layers:
 
 1. **Generic witness layer - #218.** Defines reusable contract-based verification-script behavior. It must remain generic with respect to method names, argument counts, and invocation data.
-2. **AA protocol foundation - #243.** Defines UserOperation encoding, account identity, replay protection, verifier and hook lifecycle, callback authority, execution ordering, failure semantics, witness bridging, and module resource boundaries.
-3. **Native AccountManagement profile - #242.** Defines the node-native identity, activation, fee and resource schedule, governance, state model, and migration rules required by a native service.
+2. **SmartAccount protocol foundation - #243.** Defines UserOperation encoding, account identity, replay protection, verifier and hook lifecycle, callback authority, execution ordering, failure semantics, witness bridging, and module resource boundaries.
+3. **Native SmartAccount profile - #242.** Defines the node-native identity, activation, fee and resource schedule, governance, state model, and migration rules required by a native service.
 
 Transferable ownership, metadata, marketplaces, paymasters, and application-specific authorization schemes are extensions. They must not silently become prerequisites of the foundation.
 
@@ -43,7 +43,7 @@ The revised foundation resolves the following protocol ambiguities from the earl
 - Verification-trigger witness validation and application-trigger UserOperation authorization are separate mechanisms and must not depend on temporary application state.
 - Changing verification-script bytes or call flags changes the derived address and therefore requires an explicit migration rule.
 
-## 4. Native AccountManagement obligations
+## 4. Native SmartAccount obligations
 
 A native proposal must not copy ordinary deployed-contract assumptions into a node-native specification. It must define, independently:
 
@@ -56,7 +56,7 @@ A native proposal must not copy ordinary deployed-contract assumptions into a no
 - deterministic storage and state migration;
 - compatibility for existing accounts, verification-script addresses, and assets.
 
-A deployed contract, its bytecode, its administrator, or its private-chain test results do not establish that a node-native AccountManagement service has been activated or specified.
+A deployed contract, its bytecode, its administrator, or its private-chain test results do not establish that a node-native SmartAccount service has been activated or specified.
 
 ## 5. Scope and evidence boundary
 

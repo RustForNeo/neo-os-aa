@@ -23,9 +23,9 @@ for required in ('executeUserOp(accountId: Hash160, op: Array)',
                  'postExecute(accountId: Hash160, op: Array, result: Any)',
                  'channel  = nonce >> 64', '0 <= nonce < 2^256',
                  'An installed verifier MUST implement',
-                 'Requirements for a native AccountManagement profile'):
+                 'Requirements for a native SmartAccount profile'):
     assert required in spec, required
 assert 'does not prescribe source language' in text
 assert 'ordinary deployed contract MUST NOT be described as a node-native' in text
-print('PASS: AA foundation document structure and interface assertions')
+print('PASS: SmartAccount foundation document structure and interface assertions')
 print('Not a protocol proof, conformance test, or native-contract implementation test.')

@@ -1,12 +1,12 @@
-# Abstract Account Protocol Diagrams
+# SmartAccount Protocol Diagrams
 
 These diagrams explain the protocol boundary in Draft PR #243 and the native profile boundary in Issue #242. They are intentionally implementation-independent.
 
 ## Protocol layers
 
-![Neo N3 Abstract Account Protocol three-layer model](./diagrams/aa-protocol-layers.svg)
+![Neo N3 SmartAccount Protocol three-layer model](./diagrams/aa-protocol-layers.svg)
 
-The generic witness layer authenticates scripts; the AA foundation standardizes operations and lifecycle; a native AccountManagement profile adds consensus and governance rules.
+The generic witness layer authenticates scripts; the SmartAccount foundation standardizes operations and lifecycle; a native SmartAccount profile adds consensus and governance rules.
 
 ## UserOperation lifecycle
 
@@ -22,13 +22,13 @@ A transaction-wide budget is not an independent bound for an untrusted verifier.
 
 ## Application scenarios
 
-![Abstract Account application scenarios](./diagrams/aa-application-scenarios.svg)
+![SmartAccount application scenarios](./diagrams/aa-application-scenarios.svg)
 
 Passkeys, session keys, MultiSig, recovery, native witnesses, policy hooks, and sponsored relays are profiles around the same execution protocol.
 
 ## Identity and address binding
 
-![Abstract Account identity and address binding](./diagrams/aa-identity-address.svg)
+![SmartAccount identity and address binding](./diagrams/aa-identity-address.svg)
 
 `accountId`, the protocol identity, and the verification-script-derived asset address are distinct values. Changing script bytes is an address migration.
 
