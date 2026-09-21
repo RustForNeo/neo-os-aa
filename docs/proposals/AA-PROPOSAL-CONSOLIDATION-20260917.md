@@ -1,93 +1,71 @@
-# AA 提案历史核查与整合方案
+# AA Proposal Relationship and Protocol Scope
 
-核查日期：2026-09-17。依据 neo-project/proposals 的 PR 正文、diff、讨论及状态，以及 neo-os-aa 当前源码。此文件为本地修订建议，不改变任何 PR 状态，也不代表社区共识。
+**Review date:** 2026-09-21
+**Purpose:** Record the relationship between the existing Neo AA proposals and the protocol boundary of the revised foundation.
+**Status:** Editorial and architectural guidance; not a NEP assignment, implementation claim, or community decision.
 
-## 1. 已存在的提案
+## 1. Existing proposal history
 
-| 编号 | 标题 | 当前状态 | 处理建议 |
+| Identifier | Title | Status | Protocol relationship |
 |---|---|---|---|
-| [#165](https://github.com/neo-project/proposals/pull/165) | New Proposal: add meta transaction proposal | Closed，未合并 | 保留历史动机，不复用 EVM 风格的执行/编码假设 |
-| [#218](https://github.com/neo-project/proposals/pull/218) | Draft: Contract-based Verification Script Standard | Open | 保持通用底层；不要加入 AA 状态机和固定 verify 方法要求 |
-| [#219](https://github.com/neo-project/proposals/pull/219) | Draft: Transferable Abstract Account Standard | Closed，未合并 | 仅作为未来控制权转移扩展的历史参考 |
-| [#220](https://github.com/neo-project/proposals/pull/220) | Draft: Abstract Account Metadata Standard | Closed，未合并 | 作为可选展示层扩展，不能构成授权依据 |
-| [#221](https://github.com/neo-project/proposals/pull/221) | Draft: Abstract Account Entry Contract and Custom Verifier Standard | Closed，未合并 | 当前 AA 协议最直接的前身，优先以其为修订基础 |
-| [#242](https://github.com/neo-project/proposals/issues/242) | Proposal: Neo Native Account Abstraction (AA) Standard | Open issue | 用作当前整合讨论入口，而不是第二份互相竞争的接口标准 |
+| [#165](https://github.com/neo-project/proposals/pull/165) | New Proposal: add meta transaction proposal | Closed, not merged | Historical motivation; does not define the current operation or witness model. |
+| [#218](https://github.com/neo-project/proposals/pull/218) | Draft: Contract-based Verification Script Standard | Open | Generic witness-script layer; remains independent of the AA execution state machine. |
+| [#219](https://github.com/neo-project/proposals/pull/219) | Draft: Transferable Abstract Account Standard | Closed, not merged | Optional control-transfer extension. |
+| [#220](https://github.com/neo-project/proposals/pull/220) | Draft: Abstract Account Metadata Standard | Closed, not merged | Optional presentation and discovery extension. |
+| [#221](https://github.com/neo-project/proposals/pull/221) | Draft: Abstract Account Entry Contract and Custom Verifier Standard | Closed, not merged | Direct predecessor of the revised protocol foundation. |
+| [#242](https://github.com/neo-project/proposals/issues/242) | Proposal: Neo Native Account Abstraction (AA) Standard | Open issue | Native AccountManagement profile that may build on the foundation. |
+| [#243](https://github.com/neo-project/proposals/pull/243) | Draft: Revise AA entry proposal as protocol foundation for AccountManagement | Draft PR | Current deployment-independent protocol foundation. |
 
-#219、#220、#221 均由 Jim8y 于 2026-05-09 关闭，不能将 Closed 解释为已经合并或社区正式否决。
+Closed proposals are historical references. Closed status must not be interpreted as either adoption or formal rejection by the Neo protocol.
 
-## 2. 必须回应的旧反馈
+## 2. Protocol layering
 
-- #165：讨论指出该设计使用过多 EVM 概念，未充分建模 Neo N3 的 witness 与跨合约调用；作者关闭时也要求从 N3 特有的签名与验证需求重新出发。
-- #218：审阅要求标准仅规定通用 contract-based verification scripts；不应固定方法名为 verify，不应限制为一个 accountId 参数，允许 invocation script 提供动态签名数据。
-- #219：Erik Zhang 建议需要 AccountManagement native contract；Roman Khimov 认为普通合约已经可以实现，并质疑统一 owner 的含义。二者是不同意见，不是共识。
-- #221：审阅质疑为什么标准 witnesses 不够。作者关闭时保留 #218 作为较窄的活跃互操作讨论。
+The proposals have three distinct layers:
 
-新稿应说明其价值是共享操作编码、生命周期及工具互操作，而不是声称 Neo 原来无法实现合约账户。
+1. **Generic witness layer - #218.** Defines reusable contract-based verification-script behavior. It must remain generic with respect to method names, argument counts, and invocation data.
+2. **AA protocol foundation - #243.** Defines UserOperation encoding, account identity, replay protection, verifier and hook lifecycle, callback authority, execution ordering, failure semantics, witness bridging, and module resource boundaries.
+3. **Native AccountManagement profile - #242.** Defines the node-native identity, activation, fee and resource schedule, governance, state model, and migration rules required by a native service.
 
-## 3. 建议的分层
+Transferable ownership, metadata, marketplaces, paymasters, and application-specific authorization schemes are extensions. They must not silently become prerequisites of the foundation.
 
-1. #218：可静态识别的 witness verification script，通用底层。
-2. 修订 #221：AA 操作协议、账户标识、verifier/hook、nonce、恢复与执行语义。
-3. #220 的展示元数据、#219 的控制权转移、赞助机制：独立可选扩展。
-4. AccountManagement 原生合约：单独的节点实现与共识激活方案；不能把现有普通合约部署直接称为原生合约实现。
+## 3. Corrections carried into the foundation
 
-未分配 NEP 编号的 PR/issue 用链接标明关系，不将 PR 号填为 Requires/Replaces 的 NEP 编号。
+The revised foundation resolves the following protocol ambiguities from the earlier draft:
 
-## 4. #221 到当前协议的具体迁移
+- `executeUserOp` and `executeUserOps` replace the earlier implementation-specific entrypoint names as the foundation's canonical operation interfaces.
+- `accountId`, `coreHash`, and the verification-script-derived asset address are distinct identifiers. A profile must publish byte-order and address-derivation vectors.
+- Authorization commits to the protocol domain, network, core, account, target, method, exact arguments, nonce, and deadline. A caller-supplied signer list is not proof of authorization.
+- `validateSignature` is read-only and returns a Boolean. An installed verifier must also implement `postExecute`; a no-op is permitted, an absent method is not.
+- Execution order is normative: validation, authorization, nonce consumption, pre-hook, target call, post-hook, verifier post-callback, event emission, and cleanup.
+- Failed authorization, callback, or target execution must not commit target state or nonce consumption. A target Boolean `false` is not automatically a VM fault.
+- Every verifier callback must run under a platform-enforced child resource budget independent of the enclosing transaction budget. Nested calls inherit ancestor budgets, fee whitelists do not bypass them, and exhaustion is fail-closed and atomic. Hook callbacks must also have finite documented resource bounds.
+- Module type identifiers in lifecycle events are strings (`"verifier"` and `"hook"`), not canonical integer values.
+- Verification-trigger witness validation and application-trigger UserOperation authorization are separate mechanisms and must not depend on temporary application state.
+- Changing verification-script bytes or call flags changes the derived address and therefore requires an explicit migration rule.
 
-| 旧接口/假设 | 当前协议修订方向 |
-|---|---|
-| executeUnifiedByAddress(account,target,method,args) 为规范入口 | executeUserOp(accountId,op)；executeUserOps 为批量入口 |
-| ByteString accountId，地址即公共身份 | 区分 20 字节 accountId、core hash、由验证脚本派生的资产地址；说明 ABI Hash160 与原始字节/显示 hex 的转换 |
-| verifier.verify(accountId) | validateSignature(accountId,op)，只读授权检查 |
-| verifyMetaTx(accountId,signerHashes) | 明确认证上下文和完整操作承诺；不能将调用者提供的 signer 列表直接视为已认证身份 |
-| entry policy 与 verifier 只有概念分离 | 明确 validateSignature → nonce → preExecute → target → postExecute 的顺序及失败语义 |
-| 未定义统一重放状态 | 定义 channel=nonce>>64、sequence=nonce & (2^64-1)，并补充数值边界、耗尽行为和编码向量 |
-| 未明确恢复/控制权 | 分别定义执行权限、backup-owner 配置权限、平台 registrar 权限、核心升级权限 |
+## 4. Native AccountManagement obligations
 
-## 5. 当前 #242 应先纠正的内容
+A native proposal must not copy ordinary deployed-contract assumptions into a node-native specification. It must define, independently:
 
-### 原生合约与普通合约不是同义词
+- native contract identity and address;
+- consensus activation and ABI-version policy;
+- account creation, binding, recovery, custody, and revocation transitions;
+- canonical serialization, signing profiles, and conformance vectors;
+- GAS charging and non-bypassable resource accounting for all external callbacks;
+- governance, upgrades, emergency controls, and authority separation;
+- deterministic storage and state migration;
+- compatibility for existing accounts, verification-script addresses, and assets.
 
-现有 UnifiedSmartWalletV3 是可部署、可升级的普通合约。若选择真正的节点原生 AccountManagement，需要规定原生合约标识/地址、激活高度或硬分叉、跨客户端确定性、存储规则、资源/GAS 计量及迁移机制。
+A deployed contract, its bytecode, its administrator, or its private-chain test results do not establish that a node-native AccountManagement service has been activated or specified.
 
-因此原生合约版不能继续声称“不修改协议规则、无需共识激活”，也不能沿用 Runtime.Transaction.Sender 成为部署 admin、NEF update 等普通合约治理规则作为原生合约的规范治理。
+## 5. Scope and evidence boundary
 
-### 与 #218 的地址兼容性
+The foundation is a protocol document. It does not prescribe a source language, contract layout, bytecode format, syscall name, hardfork name, or deployment topology. A conforming implementation must publish its profile parameters and pass reproducible vectors for encoding, authorization, replay, callback authority, resource exhaustion, rollback, witness scopes, and migration where applicable.
 
-#218 要求 ReadOnly call flags。当前 Proxy.cs 的固定脚本使用 PUSH15（All）。修改 flags 会改变 verification script 字节，进而改变资产地址。可以定义新的 #218-compatible profile，但必须明确其与旧地址不兼容，不可宣称是无迁移成本的替换。
+Implementation tests, private-chain execution, formal models, and artifact readback are evidence for an implementation or profile. They are not substitutes for the protocol's normative definitions, cross-client vectors, consensus activation, or independent review.
 
-### 已确认的源码描述偏差
+## 6. Editorial action
 
-- Events.cs 的 moduleType 为字符串 "verifier" / "hook"，不是 0 / 1。
-- Execution.cs 在配置 verifier 时无条件调用 verifier.postExecute；当前接口应要求实现该方法（允许 no-op），不能同时写“可选”且无条件调用。
-- Accounts.cs 在哈希后还 ReverseBytes，再转 UInt160；#242 的账户派生公式没有完整说明该步骤及原始字节与显示形式的区别。应给出逐字节向量，不能仅写一个含糊的 reverse 公式。
-- #220 的 accountURI(account) 与当前 getMetadataUri(accountId) 不是相同接口，必须显式定义适配与标识转换。
-- #219 将 ownerOf(NEP-11 token) 定义为唯一控制者；当前市场托管/控制权变更并不等于该模型，不能宣称符合 #219。
+The revised English protocol text is maintained in [`nep-aa-entry-verifier.mediawiki`](./nep-aa-entry-verifier.mediawiki) and is synchronized with the file proposed in PR #243. The native-profile issue should reference the foundation and state its additional obligations instead of repeating implementation-specific account, administrator, proxy-script, or deployment claims.
 
-### 安全及可用性表述边界
-
-- 升级权限意味着未来可改变验证规则；不能因“当前需 verifier 签名”而淡化 admin 的长期控制权。
-- 配置时间锁、逃生时间锁与插件升级延迟应整体分析，不承诺任何情况下都能在升级前安全退出。
-- Verification trigger 的 witness 检查与 Application trigger 的操作授权必须分别定义，避免把应用执行中的临时状态当作预验证时已存在的状态。
-- 任意 target 返回 false 不必然使 Neo VM FAULT。规范应区分 VM 成功、业务结果、hook 的结果断言，以及应用状态回滚与交易手续费。
-- 普通 executeUserOp 的代理脚本规则不能自动推出 executeSponsoredUserOp 路径兼容；赞助包装路径需要明确规则与向量。
-- 现有部署和局部测试是工程证据，不是“原生合约已实现”或“规范完整性已证明”。
-
-## 6. 可直接用于 #242 的英文关联说明草案
-
-> This discussion revisits the earlier AA entry-contract draft (#221), rather than proposing a competing replacement for the generic verification-script draft (#218). Drafts #219 and #220 address optional ownership-transfer and presentation metadata concerns; neither is a prerequisite for basic AA execution. The earlier meta-transaction discussion (#165) also informs the requirement to model Neo N3 witness and invocation semantics explicitly.
->
-> The proposed AA profile should specify operation encoding, replay protection, verifier/hook lifecycle, recovery authority and execution outcomes above the generic witness layer. It must not narrow #218 to a fixed method name, a single argument, or an empty invocation script.
->
-> A node-native AccountManagement contract is a separate deployment and consensus choice. The existing UnifiedSmartWalletV3 is an ordinary deployed contract and is design input, not an implementation of a new native contract. A native implementation requires an explicit activation, identity, fee, governance and migration specification.
->
-> Compatibility gaps to resolve include ReadOnly versus All call flags in the verification script (which changes account addresses), accountId byte-order test vectors, legacy entrypoint migration, and the distinction between VM success and application-level success. Module type identifiers in the current implementation are strings, and verifier postExecute is required by its execution path.
-
-## 7. 执行建议
-
-先在 #242 加上前身链接、上述纠错与分层说明，再以 #221 的修订稿承载完整接口定义。是否重开 #221，应先征询原审阅者，避免在未回应旧意见时直接重开。
-
-若最终坚持节点原生 AccountManagement，应以新原生合约规范作为主文，并引用 #221 为历史接口草案，而不是将旧普通合约 NEF/管理员更新接口直接复制进去。
-
-本轮只生成此对照稿；未评论、修改、重开或关闭任何远端 issue/PR。
+This document does not reopen #221 and does not modify the scope of #218, #219, or #220.
