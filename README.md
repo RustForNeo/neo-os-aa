@@ -21,6 +21,9 @@ needs both.
 The binding is declared in `neo-os-web/docs/workspace/neoos-target-architecture.v1.json` and
 checked by the architecture source-coverage gate.
 
+Proposed v2 binding: in `neo-os-web/docs/workspace/neoos-target-architecture.v2.json` (status `PROPOSED`, validated by `npm run check:architecture:v2` in `neo-os-web`) this repository is v2 layer L1 (chain-protocol) and owns C03 account. The v1 binding above remains the enforced contract until the v2 adoption procedure completes.
+
+
 ## Features
 - **Deterministic V3 Accounts**: Each account is keyed by a 20-byte `accountId` and derives a stable Neo virtual address without deploying per-user wallet logic.
 - **Verifier Plugin Authorization**: Bind Web3Auth, TEE, WebAuthn, session keys, multisig, or other verifier plugins per account.
