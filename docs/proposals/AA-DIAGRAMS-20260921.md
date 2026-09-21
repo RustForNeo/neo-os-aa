@@ -8,6 +8,10 @@ These diagrams explain the protocol boundary in Draft PR #243 and the native pro
 
 The generic witness layer authenticates scripts; the SmartAccount foundation standardizes operations and lifecycle; a native SmartAccount profile adds consensus and governance rules.
 
+## SmartAccount operation walkthrough
+
+The approved walkthrough image is intentionally kept outside Git and is attached only to the discussion issue.
+
 ## UserOperation lifecycle
 
 ![UserOperation lifecycle](./diagrams/aa-useroperation-lifecycle.svg)
