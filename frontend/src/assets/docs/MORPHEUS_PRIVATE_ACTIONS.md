@@ -4,7 +4,7 @@ Under the V3 Unified Smart Wallet architecture, heavy on-chain components (like 
 
 ## How It Works
 
-Instead of storing recovery state on-chain, Morpheus provides a **Trusted Execution Environment (TEE)** using Intel SGX / TDX. This off-chain, secure enclave acts as a co-signer or policy enforcer without exposing the logic to the public chain.
+Instead of storing recovery state on-chain, Morpheus provides a **Trusted Execution Environment (TEE)** built on AWS Nitro Enclaves. This off-chain, secure enclave acts as a co-signer or policy enforcer without exposing the logic to the public chain.
 
 The process flows exclusively through the `TEEVerifier`, `NeoDIDCredentialHook`, and the on-chain `NeoDIDRegistry`.
 

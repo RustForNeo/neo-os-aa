@@ -20,7 +20,7 @@ Solves the "Who am I?" problem. This layer does not enforce strong bindings on-c
 ### 2. Off-chain Trusted Execution & Relayer Layer
 Solves the "Who proves, and who pays?" problem.
 * **Morpheus TEE Nodes (Trusted Execution Environment)**:
-  * **Privacy Policy Computation**: Complex "deadman's switch" conditions (e.g., checking an API to confirm 180 days of inactivity) or high-frequency automated trading intents are calculated within the TEE's Intel SGX/TDX enclave.
+  * **Privacy Policy Computation**: Complex "deadman's switch" conditions (e.g., checking an API to confirm 180 days of inactivity) or high-frequency automated trading intents are calculated inside the Morpheus TEE, an AWS Nitro Enclave.
   * **Hardware-grade Signatures**: Once the TEE confirms conditions are met, it issues instructions using its hardware private key. This means the most complex logic no longer consumes expensive on-chain GAS.
 * **Session Key Issuers**: Upon user login, the TEE or frontend issues a high-frequency temporary session key (e.g., restricted to infinite attacks in a fully on-chain game for 1 hour).
 * **Bundler & Paymaster**:

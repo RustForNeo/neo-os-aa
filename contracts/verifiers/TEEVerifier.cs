@@ -104,7 +104,7 @@ namespace AbstractAccount.Verifiers
             ByteString signature = op.Signature!;
             byte[] payload = VerifierPayload.BuildPayload(accountId, op.TargetContract, op.Method, op.Args, op.Nonce, op.Deadline);
             
-            // Verify secp256r1 (P-256) which is commonly used in SGX/TDX TEEs.
+            // Verify secp256r1 (P-256) with SHA-256, the Neo N3 curve: the registered TEE key must be one.
             return CryptoLib.VerifyWithECDsa((ByteString)payload, (ECPoint)teePubKey, signature, NamedCurveHash.secp256r1SHA256);
         }
     }

@@ -4,7 +4,7 @@
 
 ## 工作原理
 
-Morpheus 提供了一个使用 Intel SGX / TDX 的**可信执行环境 (TEE)**，而不是在链上存储恢复状态。这个链下安全飞地充当共同签名者或策略执行者，而不会将逻辑暴露给公共链。
+Morpheus 提供了一个基于 AWS Nitro Enclaves 的**可信执行环境 (TEE)**，而不是在链上存储恢复状态。这个链下安全飞地充当共同签名者或策略执行者，而不会将逻辑暴露给公共链。
 
 该过程完全通过 `TEEVerifier`、`NeoDIDCredentialHook` 和链上的 `NeoDIDRegistry` 完成。
 
