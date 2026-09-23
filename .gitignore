@@ -1,7 +1,8 @@
 node_modules/
 bin/
 obj/
-.env
+.env*
+!.env.example
 .idea/
 .vscode/
 .claude/
@@ -13,7 +14,6 @@ tests/VALIDATION_SUMMARY.md
 tests/MIXED_VERIFICATION_PLAN.md
 tests/mixed-verification-test.js
 tests/run-mixed-verification.js
-.env.local
 mainnet-aa-*-results.json
 
 .worktrees/
