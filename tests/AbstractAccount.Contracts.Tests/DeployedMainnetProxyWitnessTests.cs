@@ -17,21 +17,24 @@ namespace AbstractAccount.Contracts.Tests;
 /// Executes the byte-for-byte mainnet artifact against the proxy-signer witness path.
 /// </summary>
 /// <remarks>
-/// The fixture at fixtures/deployed-mainnet was read back from the live contract through
-/// ContractManagement.getContract and its SHA-256 is asserted below, so these tests cannot
-/// silently drift onto a different build. Mainnet runs updateCounter 4. The final case
-/// asserts the *current deployed* behaviour, which is the vulnerability reported in
-/// docs/AA-PROXY-SIGNER-SCOPE-20260912.md; after a governed upgrade it must be flipped to
-/// assert rejection. No chain write, key use or deployment is performed here.
+/// The fixture at fixtures/deployed-mainnet is pinned to the tracked byte anchor used by
+/// the recorded read-back report, and its SHA-256 is asserted below, so these tests cannot
+/// silently drift onto a different build. The final case verifies that the anchored build
+/// rejects a global proxy backed by an unrelated decoy signer. No chain write, key use or
+/// deployment is performed here.
 /// </remarks>
 [TestClass]
 public class DeployedMainnetProxyWitnessTests
 {
-    private const string MainnetNefSha256 = "009b1b499a87dab1c17c5ed732717af294ae615fc05e1fc958fe712eb443c3ba";
+    private const string MainnetNefSha256 = "c634ab9821c83bdb53b342d64359183cff2b917ac2dc5bdd9b57613494d09b4b";
 
     private static string FixtureDir => Path.Combine(
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")),
         "tests", "AbstractAccount.Contracts.Tests", "fixtures", "deployed-mainnet");
+
+    private static string ContractsBuildDir => Path.Combine(
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")),
+        "contracts", "build");
 
     private static byte[] FixtureNef()
     {
@@ -43,6 +46,19 @@ public class DeployedMainnetProxyWitnessTests
 
     private static string FixtureManifest() =>
         File.ReadAllText(Path.Combine(FixtureDir, "UnifiedSmartWalletV3.manifest.json"));
+
+    [TestMethod]
+    public void DeployedMainnet_FixtureMatchesTrackedBuildAnchor()
+    {
+        CollectionAssert.AreEqual(
+            File.ReadAllBytes(Path.Combine(ContractsBuildDir, "UnifiedSmartWalletV3.nef")),
+            File.ReadAllBytes(Path.Combine(FixtureDir, "UnifiedSmartWalletV3.nef")),
+            "The deployed-mainnet fixture must be the tracked byte anchor used by the read-back report.");
+        CollectionAssert.AreEqual(
+            File.ReadAllBytes(Path.Combine(ContractsBuildDir, "UnifiedSmartWalletV3.manifest.json")),
+            File.ReadAllBytes(Path.Combine(FixtureDir, "UnifiedSmartWalletV3.manifest.json")),
+            "The deployed-mainnet manifest must match the tracked byte anchor used by the read-back report.");
+    }
 
     private static UInt160 DeployMainnetWallet(RuntimeFixture fx)
     {
@@ -70,13 +86,28 @@ public class DeployedMainnetProxyWitnessTests
         },
     };
 
+    private static byte[] AccountBoundExecutionScript(UInt160 wallet, UInt160 accountId)
+    {
+        using ScriptBuilder scriptBuilder = new();
+        scriptBuilder.EmitPush(new byte[16]);
+        scriptBuilder.EmitPush(accountId.ToArray());
+        scriptBuilder.EmitPush(2);
+        scriptBuilder.Emit(OpCode.PACK);
+        scriptBuilder.EmitPush((byte)CallFlags.All);
+        scriptBuilder.EmitPush("executeUserOp");
+        scriptBuilder.EmitPush(wallet.ToArray());
+        scriptBuilder.EmitSysCall(ApplicationEngine.System_Contract_Call.Hash);
+        return scriptBuilder.ToArray();
+    }
+
     private static bool VerifyWitness(RuntimeFixture fx, UInt160 wallet, UInt160 target,
         UInt160 accountId, bool globalProxy, bool decoy)
     {
         using ScriptBuilder proxy = new();
         proxy.EmitDynamicCall(wallet, "verify", accountId);
         byte[] proxyScript = proxy.ToArray();
-        byte[] decoyScript = { (byte)OpCode.PUSH1 };
+        byte[] senderScript = { (byte)OpCode.PUSH1 };
+        byte[] decoyScript = { (byte)OpCode.PUSH0 };
 
         var proxySigner = new Signer
         {
@@ -88,22 +119,32 @@ public class DeployedMainnetProxyWitnessTests
 
         Transaction tx = new()
         {
-            Script = new byte[] { (byte)OpCode.RET },
+            Script = AccountBoundExecutionScript(wallet, accountId),
             Attributes = Array.Empty<TransactionAttribute>(),
             Signers = decoy
                 ? new[]
                 {
+                    new Signer { Account = senderScript.ToScriptHash(), Scopes = WitnessScope.CalledByEntry },
                     proxySigner,
                     new Signer { Account = decoyScript.ToScriptHash(), Scopes = WitnessScope.WitnessRules, Rules = ExactRules(wallet, target) },
                 }
-                : new[] { proxySigner },
+                : new[]
+                {
+                    new Signer { Account = senderScript.ToScriptHash(), Scopes = WitnessScope.CalledByEntry },
+                    proxySigner,
+                },
             Witnesses = decoy
                 ? new[]
                 {
+                    new Witness { InvocationScript = Array.Empty<byte>(), VerificationScript = senderScript },
                     proxyWitness,
                     new Witness { InvocationScript = Array.Empty<byte>(), VerificationScript = decoyScript },
                 }
-                : new[] { proxyWitness },
+                : new[]
+                {
+                    new Witness { InvocationScript = Array.Empty<byte>(), VerificationScript = senderScript },
+                    proxyWitness,
+                },
         };
 
         return Helper.VerifyWitnesses(tx, fx.Engine.ProtocolSettings, fx.Engine.Storage.Snapshot, 50_00000000);
@@ -150,10 +191,10 @@ public class DeployedMainnetProxyWitnessTests
     }
 
     [TestMethod]
-    public void DeployedMainnet_GlobalProxyWithDecoySigner_IsAccepted_VulnerabilityPinned()
+    public void DeployedMainnet_GlobalProxyWithDecoySigner_IsRejected()
     {
         var (fx, wallet, target, accountId) = Prepare();
-        Assert.IsTrue(VerifyWitness(fx, wallet, target, accountId, globalProxy: true, decoy: true),
-            "Live mainnet artifact still accepts a Global proxy backed by an unrelated decoy signer");
+        Assert.IsFalse(VerifyWitness(fx, wallet, target, accountId, globalProxy: true, decoy: true),
+            "The tracked mainnet anchor must reject a Global proxy backed by an unrelated decoy signer");
     }
 }
