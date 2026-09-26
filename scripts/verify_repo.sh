@@ -19,7 +19,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/verify_repo.sh [--contracts-only|--frontend-only|--sdk-only] [--skip-contract-build] [--skip-e2e] [--formal] [--neoexpress]
 
-Set NEOOS_REQUIRE_SERVICES_ARTIFACTS=1 for the release-grade cross-repository gate.
+Set NEOOS_REQUIRE_SERVICES_ARTIFACTS=1 for the release-grade cross-repository gate: a missing
+neo-os-services NeoDIDRegistry artifact, or a missing neo-os-services checkout for the Morpheus
+canonical-sync test (MORPHEUS_ORACLE_ROOT, else ../neo-os-services), then fails instead of skipping.
 Pass --formal (or set NEOOS_REQUIRE_FORMAL=1) to also run the fail-closed AA model-checking
 gate (formal/verify.py plus its runner tests). It needs Coq 8.16+ (including Rocq 9), Z3, a real JDK (JAVA_BIN)
 and tla2tools.jar (TLA_JAR); a missing tool is a failure, never a simulated pass.

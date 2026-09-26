@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
+import { MORPHEUS_PUBLIC_REGISTRY } from '../src/config/generatedMorpheusRegistry.js';
 import {
   DEFAULT_ABSTRACT_ACCOUNT_HASH,
   DEFAULT_ABSTRACT_ACCOUNT_HASH_TESTNET,
@@ -110,6 +111,48 @@ test('frontend ships a runtime env example for browser and server routes', () =>
   assert.match(example, /server-only/i);
 });
 
+test('frontend env example overrides agree with the generated Morpheus registry', () => {
+  const examplePath = fileURLToPath(new URL('../.env.example', import.meta.url));
+  const entries = new Map(
+    fs.readFileSync(examplePath, 'utf8')
+      .split('\n')
+      .filter((line) => /^[A-Z0-9_]+=/.test(line))
+      .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1).trim()])
+  );
+  const { mainnet, testnet } = MORPHEUS_PUBLIC_REGISTRY;
+  assert.equal(entries.get('VITE_AA_NETWORK'), 'mainnet');
+
+  // Each of these overrides replaces a registry value, so the example must either
+  // leave it empty or restate the canonical value; a stale copy would silently
+  // retarget whoever copies the example.
+  const registryBacked = {
+    VITE_AA_HASH: mainnet.contracts.aaCore,
+    VITE_AA_DOMAIN: mainnet.domains.aa,
+    VITE_AA_NETWORK_MAGIC: String(mainnet.networkMagic),
+    VITE_AA_MATRIX_CONTRACT_HASH: mainnet.contracts.matrixNameService,
+    VITE_AA_MARKET_HASH: mainnet.contracts.aaAddressMarket,
+    VITE_AA_PAYMASTER_HASH: mainnet.contracts.aaPaymaster,
+    VITE_NEODID_DOMAIN: mainnet.domains.neodid,
+    VITE_MORPHEUS_RUNTIME_URL: mainnet.morpheus.publicApiUrl,
+    VITE_MORPHEUS_TESTNET_RUNTIME_URL: testnet.morpheus.publicApiUrl,
+    VITE_MORPHEUS_API_BASE_URL: mainnet.morpheus.publicApiUrl,
+    VITE_MORPHEUS_NEODID_SERVICE_DID: mainnet.morpheus.neoDidServiceDid,
+    AA_RELAY_ALLOWED_HASH: mainnet.contracts.aaCore,
+    MORPHEUS_RUNTIME_URL: mainnet.morpheus.publicApiUrl,
+    MORPHEUS_MAINNET_RUNTIME_URL: mainnet.morpheus.publicApiUrl,
+    MORPHEUS_TESTNET_RUNTIME_URL: testnet.morpheus.publicApiUrl,
+    MORPHEUS_API_BASE_URL: mainnet.morpheus.publicApiUrl,
+  };
+  for (const [key, canonical] of Object.entries(registryBacked)) {
+    assert.ok(entries.has(key), `${key} is missing from frontend/.env.example`);
+    const value = entries.get(key);
+    assert.ok(
+      value === '' || value.toLowerCase() === String(canonical).toLowerCase(),
+      `${key}=${value} in frontend/.env.example must be empty or the registry value ${canonical}`
+    );
+  }
+});
+
 test('getRuntimeConfig prefers Vite overrides', () => {
   const config = getRuntimeConfig({
     VITE_AA_HASH: '0x1111111111111111111111111111111111111111',
@@ -119,7 +162,7 @@ test('getRuntimeConfig prefers Vite overrides', () => {
   assert.deepEqual(config, {
     morpheusNetwork: 'mainnet',
     abstractAccountHash: '1111111111111111111111111111111111111111',
-    abstractAccountDomain: 'smartwallet.neo',
+    abstractAccountDomain: 'morpheus-aa.miniapp.neo',
     rpcUrl: 'https://rpc.example.org',
     networkMagic: 860833102,
     supabaseUrl: '',
@@ -145,7 +188,7 @@ test('getRuntimeConfig prefers Vite overrides', () => {
     web3AuthEmailLoginEnabled: true,
     web3AuthSmsLoginEnabled: true,
     neoDidProvider: DEFAULT_DID_PROVIDER,
-    neoDidDomain: 'neodid.morpheus.neo',
+    neoDidDomain: 'morpheus-neodid.miniapp.neo',
     morpheusApiBaseUrl: DEFAULT_MORPHEUS_API_BASE_URL,
     morpheusEnvelopeVersion: DEFAULT_MORPHEUS_ENVELOPE_VERSION,
     morpheusWorkflowIds: DEFAULT_MORPHEUS_WORKFLOW_IDS,
@@ -210,13 +253,13 @@ test('network magic honours an explicit override and rejects junk', () => {
 test('network defaults keep mainnet and testnet anchors explicit', () => {
   assert.deepEqual(MORPHEUS_NETWORK_DEFAULTS.mainnet, {
     abstractAccountHash: '0268a387913b250166ddec032b03332690a1ef78',
-    abstractAccountDomain: 'smartwallet.neo',
+    abstractAccountDomain: 'morpheus-aa.miniapp.neo',
     addressMarketHash: 'ae7afe3a85ab08bfd1d4907b35ae8b80c75b3a69',
     paymasterHash: 'a0defa2bc6d7a71ba1e237149287c8ca4ff46caf',
     rpcUrl: 'https://api.n3index.dev/mainnet',
     networkMagic: 860833102,
     n3IndexNetwork: 'mainnet',
-    neoDidDomain: 'neodid.morpheus.neo',
+    neoDidDomain: 'morpheus-neodid.miniapp.neo',
     morpheusApiBaseUrl: DEFAULT_MORPHEUS_API_BASE_URL,
   });
   assert.deepEqual(MORPHEUS_NETWORK_DEFAULTS.testnet, {

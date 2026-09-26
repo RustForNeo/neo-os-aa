@@ -6,8 +6,8 @@ Current status note:
 
 - The current `main` branch runs `UnifiedSmartWalletV3`.
 - V3 removes the old role-heavy / dome-heavy core wallet model and replaces it with a minimalist account core plus verifier and hook plugins.
-- The canonical mainnet AA anchor now points to the clean deploy `0x0268a387913b250166ddec032b03332690a1ef78` and resolves from `smartwallet.neo` plus `aa.morpheus.neo`.
-- The canonical shared testnet AA anchor now points to the clean deployment `0xdbf38e7b2117186bf7a5e17ead702322c0c5b6f2`, with shared `Web3AuthVerifier` `0x7147f9a508594a7656a25f45d0a7a7dede7c227f`.
+- The canonical mainnet AA anchor now points to the clean deploy `0x0268a387913b250166ddec032b03332690a1ef78` and resolves from `morpheus-aa.miniapp.neo` plus `morpheus-aa-alias.miniapp.neo`.
+- The canonical shared testnet AA anchor now points to the clean deployment `0xdbf38e7b2117186bf7a5e17ead702322c0c5b6f2`, with shared `Web3AuthVerifier` `0x1111f5b6b046a964c75d208998c13945ce172e85`.
 
 ## Architecture authority
 
@@ -90,7 +90,7 @@ This generic lifecycle is the recommended surface for indexers, dashboards, and 
 
 ## Canonical Morpheus Network Anchors
 
-When this repo references Morpheus-integrated addresses, treat the following as the current canonical Neo N3 anchors:
+When this repo references Morpheus-integrated addresses, treat the following as the current canonical Neo N3 anchors. They restate `frontend/src/config/generatedMorpheusRegistry.js`, which is generated from neo-os-services and wins on any conflict; `frontend/tests/morpheusRegistryDocs.test.js` keeps the addresses and domains below equal to it.
 
 | Item | Mainnet | Testnet |
 | --- | --- | --- |
@@ -98,19 +98,21 @@ When this repo references Morpheus-integrated addresses, treat the following as 
 | AA runtime label | `UnifiedSmartWalletV3` | `UnifiedSmartWalletV3` |
 | Morpheus Oracle | `0xf54d8584ef82315c1800373272ab08ae0db2d5ef` | `0xf54d8584ef82315c1800373272ab08ae0db2d5ef` |
 | Morpheus DataFeed | `0x03013f49c42a14546c8bbe58f9d434c3517fccab` | `0x9bea75cf702f6afc09125aa6d22f082bfd2ee064` |
-| Oracle callback consumer | `0xe1226268f2fe08bea67fb29e1c8fda0d7c8e9844` | `0x8c506f224d82e67200f20d9d5361f767f0756e3b` |
+| Oracle callback consumer | `0xe1226268f2fe08bea67fb29e1c8fda0d7c8e9844` | `0x0ac1fa9cdcb66c1672f0642f62d767902f460f2b` |
 | NeoDIDRegistry | `0xb81f31ea81e279793b30411b82c2e82078b63105` | unpublished in the shared registry |
-| AA Web3AuthVerifier | `0xf5c452cd4ba29dcdc47026383568c0d8b38d9272` | `0x7147f9a508594a7656a25f45d0a7a7dede7c227f` |
-| SocialRecoveryVerifier v2 | `0xfb3f605fc6bcd59d265d7c18230093d7dc24ac26` | `recovery.smartwallet.neo` |
+| AA Web3AuthVerifier | `0xf5c452cd4ba29dcdc47026383568c0d8b38d9272` | `0x1111f5b6b046a964c75d208998c13945ce172e85` |
+| SocialRecoveryVerifier v2 | `0xfb3f605fc6bcd59d265d7c18230093d7dc24ac26` | `0xfb3f605fc6bcd59d265d7c18230093d7dc24ac26` |
 
 The Morpheus Oracle (MiniApp-OS kernel v2) has the same contract hash on mainnet and testnet. The testnet hash `0x4b882e94ed766807c4fd728768f972e13008ad52` still seen in older records is the retired v1 oracle — do not integrate against it.
 
 Domain rules:
 
-- mainnet AA domain: `smartwallet.neo`
-- mainnet AA additional alias: `aa.morpheus.neo`
-- mainnet NeoDID domain: `neodid.morpheus.neo`
+- mainnet AA domain: `morpheus-aa.miniapp.neo`
+- mainnet AA additional alias: `morpheus-aa-alias.miniapp.neo`
+- mainnet NeoDID domain: `morpheus-neodid.miniapp.neo`
 - testnet currently has no shared AA / NeoDID NNS aliases
+- the pre-migration names `smartwallet.neo`, `aa.morpheus.neo` and `neodid.morpheus.neo` still resolved on mainnet NNS to the same contracts on 2026-09-26, but they are no longer canonical
+- `oracle.morpheus.neo` resolves to the superseded oracle `0x5b492098fc094c760402e01f7e0b631b939d2bea`; never integrate through it
 
 Current published Morpheus CVM attestation anchors:
 
@@ -207,6 +209,21 @@ when requested, a missing tool fails the gate rather than producing a pass:
 ```bash
 ./scripts/verify_repo.sh --contracts-only --formal --neoexpress
 ```
+
+### Morpheus Generated Config
+
+`frontend/src/config/generatedMorpheusRegistry.js`, `frontend/src/config/generatedMorpheusRuntimeCatalog.js` and
+`frontend/src/utils/morpheusConfidentialEnvelope.generated.js` are generated from a neo-os-services checkout
+(`MORPHEUS_ORACLE_ROOT`, else a sibling `../neo-os-services`) and must not be edited by hand:
+
+```bash
+node scripts/sync_morpheus_registry.mjs --dry-run   # compare only (alias --check); exits 1 on any difference
+node scripts/sync_morpheus_registry.mjs             # regenerate after reviewing the canonical change
+```
+
+`frontend/tests/morpheusCanonicalSync.test.js` runs the same comparison inside `npm test` whenever that checkout is
+present. Without it the comparison is skipped and says why, unless `NEOOS_REQUIRE_SERVICES_ARTIFACTS=1` (the
+release-grade cross-repository switch that `verify_repo.sh` also honours) makes the missing checkout a failure.
 
 ### Live Testnet Validation
 

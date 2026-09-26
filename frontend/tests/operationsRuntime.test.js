@@ -18,7 +18,7 @@ test('getRuntimeConfig exposes Supabase and relay settings', () => {
   assert.deepEqual(config, {
     morpheusNetwork: 'mainnet',
     abstractAccountHash: '1111111111111111111111111111111111111111',
-    abstractAccountDomain: 'smartwallet.neo',
+    abstractAccountDomain: 'morpheus-aa.miniapp.neo',
     rpcUrl: 'https://rpc.example.org',
     networkMagic: 860833102,
     supabaseUrl: 'https://example.supabase.co',
@@ -44,7 +44,7 @@ test('getRuntimeConfig exposes Supabase and relay settings', () => {
     web3AuthEmailLoginEnabled: true,
     web3AuthSmsLoginEnabled: true,
     neoDidProvider: 'web3auth',
-    neoDidDomain: 'neodid.morpheus.neo',
+    neoDidDomain: 'morpheus-neodid.miniapp.neo',
     morpheusApiBaseUrl: 'https://oracle.meshmini.app/mainnet',
     morpheusEnvelopeVersion: '2026-04-tee-v1',
     morpheusWorkflowIds: [

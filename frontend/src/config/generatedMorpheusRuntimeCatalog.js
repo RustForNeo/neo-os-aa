@@ -53,6 +53,11 @@ export const MORPHEUS_PUBLIC_RUNTIME_CATALOG = {
         "oracleAttestationExplorerUrl": "",
         "datafeedCvmId": "ac5b6886a2832df36e479294206611652400178f",
         "datafeedCvmName": "datafeed-morpheus-neo-r3e",
+        "datafeedProviders": [
+          "TWELVEDATA",
+          "COINGECKO",
+          "COINPAPRIKA"
+        ],
         "datafeedAttestationExplorerUrl": "",
         "neoDidServiceDid": "did:morpheus:neo_n3:service:neodid"
       },
@@ -70,18 +75,18 @@ export const MORPHEUS_PUBLIC_RUNTIME_CATALOG = {
         "matrixNameService": "0x994c3cbe0d8641b9c911452c37191de8dd9f5f4e"
       },
       "domains": {
-        "aa": "smartwallet.neo",
-        "aaAlias": "aa.morpheus.neo",
-        "aaCore": "core.smartwallet.neo",
-        "aaWeb3AuthVerifier": "web3auth.smartwallet.neo",
-        "aaSessionKeyVerifier": "sessionkey.smartwallet.neo",
-        "aaSocialRecoveryVerifier": "recovery.smartwallet.neo",
-        "aaAddressMarket": "market.smartwallet.neo",
-        "aaPaymaster": "paymaster.smartwallet.neo",
-        "oracle": "morpheus-oracle.neo",
-        "callbackConsumer": "callback.morpheus.neo",
-        "datafeed": "pricefeed.morpheus.neo",
-        "neodid": "neodid.morpheus.neo"
+        "aa": "morpheus-aa.miniapp.neo",
+        "aaAlias": "morpheus-aa-alias.miniapp.neo",
+        "aaCore": "aa-core.miniapp.neo",
+        "aaWeb3AuthVerifier": "aa-web3auth.miniapp.neo",
+        "aaSessionKeyVerifier": "aa-session.miniapp.neo",
+        "aaSocialRecoveryVerifier": "aa-recovery.miniapp.neo",
+        "aaAddressMarket": "aa-market.miniapp.neo",
+        "aaPaymaster": "aa-paymaster.miniapp.neo",
+        "oracle": "morpheus-oracle.miniapp.neo",
+        "callbackConsumer": "morpheus-callback-consumer.miniapp.neo",
+        "datafeed": "morpheus-datafeed.miniapp.neo",
+        "neodid": "morpheus-neodid.miniapp.neo"
       }
     },
     "testnet": {
@@ -106,6 +111,11 @@ export const MORPHEUS_PUBLIC_RUNTIME_CATALOG = {
         "oracleAttestationExplorerUrl": "",
         "datafeedCvmId": "ac5b6886a2832df36e479294206611652400178f",
         "datafeedCvmName": "datafeed-morpheus-neo-r3e",
+        "datafeedProviders": [
+          "TWELVEDATA",
+          "COINGECKO",
+          "COINPAPRIKA"
+        ],
         "datafeedAttestationExplorerUrl": "",
         "neoDidServiceDid": "did:morpheus:neo_n3:service:neodid"
       },
