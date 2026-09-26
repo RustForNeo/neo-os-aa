@@ -1,14 +1,68 @@
-node_modules/
+# === NeoOS Standard .gitignore ===
+
+# Tool State (NEVER commit)
+/.claude/
+/.codegraph/
+/.serena/
+/.planning/
+/.workbuddy/
+/.omx/
+/.worktrees/
+/graphify-out/
+/.vercel/
+/.turbo/
+
+# Build Outputs
+/target/
+/dist/
+/coverage/
+/.next/
+/test-results/
+*.neopkg
+*.wasm
+
+# .NET build outputs (unanchored to match at any depth)
 bin/
 obj/
-.env*
+
+# Dependencies
+/node_modules/
+node_modules/
+
+# Environment
+.env
+.env.*
 !.env.example
-.idea/
-.vscode/
-.claude/
-dist/
-.next/
-.serena/
+
+# Secrets
+*.pem
+*.key
+*.p12
+id_rsa*
+*.gpg
+
+# Editor/IDE
+/.vscode/
+/.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
+*.log
+*.tmp
+*.bak
+.cache/
+/tmp/
+
+# === Repository-Specific Patterns ===
+
+# Test artifacts
 tests/.env.testnet
 tests/VALIDATION_SUMMARY.md
 tests/MIXED_VERIFICATION_PLAN.md
@@ -16,13 +70,10 @@ tests/mixed-verification-test.js
 tests/run-mixed-verification.js
 mainnet-aa-*-results.json
 
-.worktrees/
-.omx/
-.vercel
+# Automation logs
 .automation-logs/
 
 # LaTeX build artifacts
 *.aux
-*.log
 *.out
 missfont.log
