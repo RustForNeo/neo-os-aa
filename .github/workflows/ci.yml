@@ -32,7 +32,7 @@ jobs:
             sdk/js/package-lock.json
       # Needs no packages, so it still runs while the gate below is red.
       - name: Repository hygiene and package-pin tests
-        run: node --test scripts/repo_hygiene.test.mjs scripts/check_neo_platform_packages.test.mjs
+        run: node --test scripts/repo_hygiene.test.mjs scripts/check_neo_platform_packages.test.mjs scripts/fuzz_continuous.test.mjs
       # KNOWN RED until the owner action in docs/NEO-PLATFORM-PACKAGES.md is done
       # (audit finding R-11 / N-DEP-1); do not silence it here.
       #

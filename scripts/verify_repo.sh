@@ -101,6 +101,7 @@ if [[ $run_contracts -eq 1 ]]; then
     scripts/upgrade_testnet_unified_smart_wallet.test.mjs \
     scripts/deploy_latest_aa_verifiers.test.mjs \
     scripts/check_neo_platform_packages.test.mjs \
+    scripts/fuzz_continuous.test.mjs \
     scripts/repo_hygiene.test.mjs
   dotnet format neo-abstract-account.sln --verify-no-changes --no-restore --verbosity minimal
   # The formal gate is opt-in because CI's ubuntu image ships neither Rocq/Coq 9 nor the TLA
