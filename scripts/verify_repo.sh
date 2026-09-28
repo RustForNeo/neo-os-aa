@@ -95,7 +95,8 @@ if [[ $run_contracts -eq 1 ]]; then
   node --test scripts/lib/deploy-helpers.test.mjs \
     scripts/upgrade_mainnet_unified_smart_wallet.test.mjs \
     scripts/upgrade_testnet_unified_smart_wallet.test.mjs \
-    scripts/deploy_latest_aa_verifiers.test.mjs
+    scripts/deploy_latest_aa_verifiers.test.mjs \
+    scripts/repo_hygiene.test.mjs
   dotnet format neo-abstract-account.sln --verify-no-changes --no-restore --verbosity minimal
   # The formal gate is opt-in because CI's ubuntu image ships neither Rocq/Coq 9 nor the TLA
   # tools; formal/verify.py refuses to substitute a simulated result for a missing tool, so an
