@@ -177,6 +177,10 @@ If you want the clearest end-to-end explanation, read these docs in order:
 ### Prerequisites
 - `.NET SDK 10`
 - `Node.js 22+`
+- the private Neo platform packages pinned in `contracts/Directory.Build.props` for the
+  contract build and tests. They are on no public feed yet (audit finding R-11);
+  `node scripts/check_neo_platform_packages.mjs` reports whether they restore, and
+  `docs/NEO-PLATFORM-PACKAGES.md` describes the gap and the owner action that closes it.
 
 ### Install
 

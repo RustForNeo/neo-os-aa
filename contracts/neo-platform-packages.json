@@ -1,0 +1,86 @@
+{
+  "description": "Private Neo platform packages behind the NeoSmartContractFrameworkVersion pin in contracts/Directory.Build.props (audit finding R-11 / N-DEP-1). Seven of the eight exist on no public feed; they were built from the nuspec commits below plus an uncommitted verifier gas-cap patch. scripts/check_neo_platform_packages.mjs restores them first and fails when they are unavailable or when a feed serves bytes other than these. The owner action that makes them restorable is in docs/NEO-PLATFORM-PACKAGES.md.",
+  "frameworkVersion": "3.10.2-CI00384",
+  "packages": [
+    {
+      "id": "Neo.SmartContract.Framework",
+      "version": "3.10.2-CI00384",
+      "sha512": "7QmKiwO/M+OO3+e5rqO3o8p7VLswo2fLucLRUkCzgpdPfNoeo1eBv/kfA+AAL0rueeFAjn6Ph9UJhA07djsN8g==",
+      "sha256": "172597b180f6ae9d93c1901bec11d8f2ce76b46c465a2dd3552ae876e5421d65",
+      "size": 146339,
+      "requiredBy": "every contract project (contracts/**/*.csproj)",
+      "nuspecRepositoryCommit": "neo-project/neo-devpack-dotnet@34255c46676b7b847b98b787616de10e268331c5",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.SmartContract.Testing",
+      "version": "3.10.2-CI00384",
+      "sha512": "GJFMa4AWXXF6TUDbUT+9tWg48UWlPDVXVfdFHDhEm0iffng8tazoCeOZuro45DdgjOKDSL/KtWP29a1V8phxXQ==",
+      "sha256": "92a06b27548c10da98c54043ff4dfd5eaf6c1b74df4fc707b6e7cc67c7b9ce6a",
+      "size": 87745,
+      "requiredBy": "tests/AbstractAccount.Contracts.Tests",
+      "nuspecRepositoryCommit": "neo-project/neo-devpack-dotnet@34255c46676b7b847b98b787616de10e268331c5",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.Disassembler.CSharp",
+      "version": "3.10.2-CI00384",
+      "sha512": "R6DjAZvtQd4CX/7ZopAI3uiEWg0hoj77jBa1aIHgu0rSm/+NIPIsozBbxEW9xVEdOtzP7Gw2GoPS1PrVX8RoIw==",
+      "sha256": "9ee27bb5b372bba07ef0872ca22ab4700be0c3dc87deb5cbc1ada9a895901f21",
+      "size": 10065,
+      "requiredBy": "Neo.SmartContract.Testing",
+      "nuspecRepositoryCommit": "neo-project/neo-devpack-dotnet@34255c46676b7b847b98b787616de10e268331c5",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo",
+      "version": "3.10.1.1",
+      "sha512": "tR9VzQX9NHreULiH00GiH/17YwkGs2EX2Nb7slWdfKtXL0+HJzX2lft7vVGwzaK+v4SIqSb9qPJ0WGE/+N70Fw==",
+      "sha256": "4218a38a767d8c9c0d8bfbd6cc91c9bd13f9d298c816dd72366a3f3735960d49",
+      "size": 385811,
+      "requiredBy": "Neo.SmartContract.Testing, Neo.Disassembler.CSharp",
+      "nuspecRepositoryCommit": "neo-project/neo@8461a720a5c8eaa2f1b077d505d5b02fa8eb71b4",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.Extensions",
+      "version": "3.10.1.1",
+      "sha512": "ua5xLpV5zq22dySHDKzgYFHiY0iMngbqTEovJ2gGEJlqDFIQGMqykZx0amQ+a1X2KGECF4uhrsEbX66fvRiFCg==",
+      "sha256": "93e296fe0773db0ddaeb4f0a9d9174555f65ae17560497e72e8f4a692ffe500d",
+      "size": 26348,
+      "requiredBy": "Neo",
+      "nuspecRepositoryCommit": "neo-project/neo@8461a720a5c8eaa2f1b077d505d5b02fa8eb71b4",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.IO",
+      "version": "3.10.1.1",
+      "sha512": "tFJVipkQ5lTsogC2biauuJ8Ytx5JPgGv7MPeY3GYCmqvHN2eg9OUCsBMFxa2IJg/eJ+Celu25QlwrwwpvglF/g==",
+      "sha256": "b1bba7f6aad5275f05ac13f4356c56caaac5866318ef87b30cd14d8ed3a2dcf7",
+      "size": 19483,
+      "requiredBy": "Neo",
+      "nuspecRepositoryCommit": "neo-project/neo@8461a720a5c8eaa2f1b077d505d5b02fa8eb71b4",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.Json",
+      "version": "3.10.1.1",
+      "sha512": "34CAvIiK+cvGFSli0yiQJqkyZ0XhtFI506tqbpLrHl+x4y+CC0KmSJSOX+ZngWnMOA8BmwoGW4278bRyC+kTpA==",
+      "sha256": "0275990e41fe6fb6163183ceb5b151a62a16219294852569d1b85a8ef7f4fa63",
+      "size": 22980,
+      "requiredBy": "Neo",
+      "nuspecRepositoryCommit": "neo-project/neo@8461a720a5c8eaa2f1b077d505d5b02fa8eb71b4",
+      "availableOn": "no public feed (nuget.org and the Neo MyGet feed checked 2026-09-28)"
+    },
+    {
+      "id": "Neo.VM",
+      "version": "3.10.2-CI00384",
+      "sha512": "PxBP9mt7G44H/eV+kq9Xbepy6qHOL13Mm0AHZDZcqQeJGYcODkRUmw6XlhBz3BIYUrxugGDkKNCjaKHFeKNVgQ==",
+      "sha256": "84bd08d291362cfaf85697f0fb14666719d3443f2f71c39c8de1b9184c20820e",
+      "size": 62332,
+      "requiredBy": "Neo",
+      "nuspecRepositoryCommit": "neo-project/neo-vm@3665b5028de2dda2adfa849235d8aecc14716267",
+      "availableOn": "https://www.myget.org/F/neo/api/v3/index.json (upstream nightly; byte-identical, checked 2026-09-28)"
+    }
+  ]
+}

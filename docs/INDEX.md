@@ -62,6 +62,11 @@ This index keeps the root documentation set visible and easy to browse.
 - `docs/PLUGIN_DEVELOPER_GUIDE.md`
 - `SECURITY_IMPROVEMENTS.md` — historical 2026-03-09 hardening note (pre-V3 tree)
 
+## Build Toolchain
+
+- `docs/NEO-PLATFORM-PACKAGES.md` — why CI cannot restore the pinned private Neo framework (R-11 / N-DEP-1), what is and is not affected, and the owner action that fixes it
+- `contracts/neo-platform-packages.json` — audited hashes of the eight private packages; `scripts/check_neo_platform_packages.mjs` enforces them
+
 ## Historical Reports
 
 - `docs/reports/testnet-validation-v1v2-2026-03.md` — archived pre-V3 (V1/V2) testnet validation status
