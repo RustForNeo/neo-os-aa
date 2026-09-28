@@ -10,6 +10,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -149,4 +150,36 @@ test("no tracked file matches an ignore rule", () => {
     .split("\n")
     .filter(Boolean);
   assert.deepEqual(tracked, [], `tracked files matching .gitignore:\n  ${tracked.join("\n  ")}`);
+});
+
+// SR-19: without .github/dependabot.yml the dependency graph produces no update
+// PRs and the alert inventory drifts stale. Every package.json tree in the
+// repository must be covered by an npm entry, and the root .NET solution by the
+// nuget entry.
+function packageJsonDirectories(root) {
+  const found = [];
+  const visit = (relative) => {
+    for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules" || !entry.isDirectory()) continue;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (fs.existsSync(path.join(root, child, "package.json"))) found.push(child);
+      visit(child);
+    }
+  };
+  visit("");
+  return found.sort();
+}
+
+test("dependabot covers every npm tree and the root nuget solution", () => {
+  const config = fs.readFileSync(path.join(repoRoot, ".github", "dependabot.yml"), "utf8");
+  const npmDirectories = packageJsonDirectories(repoRoot);
+  assert.notDeepEqual(npmDirectories, [], "the discovery itself must find this repository's npm trees");
+  const missing = npmDirectories.filter((dir) => !config.includes(`directory: "/${dir}"`));
+  assert.deepEqual(
+    missing,
+    [],
+    `.github/dependabot.yml is missing npm entries for:\n  ${missing.join("\n  ")}`,
+  );
+  assert.match(config, /package-ecosystem: "nuget"/, "the root nuget solution must be covered");
+  assert.match(config, /directory: "\/"\s*\n\s*schedule:\s*\n\s*interval: "daily"/, "the nuget entry must watch the repository root");
 });
