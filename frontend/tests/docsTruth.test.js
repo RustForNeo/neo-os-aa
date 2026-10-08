@@ -62,7 +62,7 @@ const V2_DEBT = {
   'docs/ETHEREUM_AA_COMPARISON.md': ['case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:ValidatePaymasterOp', 'entrypoint:validateUserOp'],
   'docs/HOW_IT_WORKS.md': ['case:ValidatePaymasterOp', 'entrypoint:CreateAccountBatch', 'entrypoint:GetAccountsByAdmin', 'entrypoint:GetAccountsByManager', 'entrypoint:executeUnifiedByAddress'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
-  'docs/MULTISIG_SDK.md': ['entrypoint:callHash', 'entrypoint:callVerifierChild'],
+  'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
   'docs/NATIVE_ACCOUNT_WORKSPACE.md': ['entrypoint:executeRecovery', 'entrypoint:getNetworks'],
   'docs/NEO-PLATFORM-PACKAGES.md': ['entrypoint:getAuthorityEpoch'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
@@ -106,9 +106,10 @@ const deployedAbiLower = new Map([...deployedAbi.keys()].map((name) => [name.toL
 // comments do not count: `'executeUnifiedByAddress'` in an allowlist is a string, not a definition.
 const definedNames = new Set(deployedAbi.keys());
 const tracked = [];
+const SKIP_DIRS = new Set(['node_modules', '.git', 'obj', 'bin', 'dist', 'coverage', 'test-results', '.next', '.codegraph', '.turbo', '.vercel', 'tmp']);
 (function walk(dir) {
   for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'obj' || entry.name === 'bin') continue;
+    if (SKIP_DIRS.has(entry.name) || (entry.name.startsWith('.') && entry.name !== '.')) continue;
     const relative = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(relative);
     else tracked.push(relative);
@@ -116,7 +117,8 @@ const tracked = [];
 })('.');
 for (const file of tracked) {
   if (!/\.(cs|js|mjs|ts|py|sql|json)$/.test(file)) continue;
-  if (file.startsWith('docs/') || file.startsWith('frontend/tests/') || file.startsWith('tests/')) continue;
+  // Test drivers are not the product surface, and docs are prose about it.
+  if (file.startsWith('docs/') || file.startsWith('frontend/tests/') || file.startsWith('tests/') || file.startsWith('sdk/js/tests/')) continue;
   const text = read(file);
   for (const match of text.matchAll(/([A-Za-z_]\w*)\s*\(/g)) definedNames.add(match[1]);
   for (const match of text.matchAll(/DisplayName\("([^"]+)"\)/g)) definedNames.add(match[1]);
@@ -340,6 +342,41 @@ test('CU-163: the rendered audit presents its findings as the historical snapsho
   }
   assert.equal(read('frontend/src/assets/docs/SECURITY_AUDIT.md'), read('docs/SECURITY_AUDIT.md'),
     'the rendered security audit has drifted from docs/SECURITY_AUDIT.md');
+});
+
+// The ledger is the only place that numbers an issue VULN-00N. A second document reusing an id
+// makes a reviewer read two different issues under one name (DS-CU-163 section 4.3 V4).
+test('CU-163: only the ledger numbers issues VULN-00N', () => {
+  const markdown = tracked.filter((file) => file.endsWith('.md')
+    && !file.startsWith('docs/proposals/') && !file.startsWith('docs/reports/') && !file.startsWith('docs/plans/'));
+  const collisions = [];
+  for (const file of markdown) {
+    read(file).split('\n').forEach((line, index) => {
+      if (/^#{1,6}\s*VULN-00\d/.test(line)) collisions.push(`${file}:${index + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(collisions, [], `a document reuses a ledger identifier as a heading:\n${collisions.join('\n')}`);
+});
+
+// The closure claim is checked against the artifact for every document, not only the guarded ones:
+// while the deployed core carries no bounded call site, no document may say the public build is
+// fixed. A document may say the private artifact is closed when it says so in those words.
+test('CU-163: no document closes VULN-001 for the public build while the deployed core has no bounded call', () => {
+  if (gasBoundedSites.length > 0) return;
+  const markdown = tracked.filter((file) => file.endsWith('.md')
+    && !file.startsWith('docs/proposals/') && !file.startsWith('docs/reports/') && !file.startsWith('docs/plans/'));
+  const claims = [];
+  for (const file of markdown) {
+    // A paragraph is the unit: the prose wraps, so the qualifier can sit on the next line.
+    const paragraphs = read(file).split(/\n\s*\n/);
+    for (const paragraph of paragraphs) {
+      const flat = paragraph.replace(/\s+/g, ' ');
+      if (!/VULN-001/.test(flat) || !/fix|clos|resolv|mitigat|eliminat/i.test(flat)) continue;
+      if (/private|only|not\b|pending|open|historical/i.test(flat)) continue;
+      claims.push(`${file}: ${flat.slice(0, 140)}`);
+    }
+  }
+  assert.deepEqual(claims, [], `a document claims VULN-001 closed for the public build while ${deployedCorePath} carries no ${GAS_BOUNDED_SYSCALL} call site:\n${claims.join('\n')}`);
 });
 
 test('CU-163: the V2-era documents do not grow new dead references (ratchet)', () => {

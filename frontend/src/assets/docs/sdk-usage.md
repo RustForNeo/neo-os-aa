@@ -41,7 +41,8 @@ Use `deriveRegistrationAccountIdHash` so the SDK, frontend, and contract agree o
 ```javascript
 const verifierParamsHex = evmPubKey.slice(2);
 const backupOwnerAddress = 'NQh...ownerAddress';
-const web3AuthVerifierHash = '0xf5c452cd4ba29dcdc47026383568c0d8b38d9272';
+// canonical testnet verifier from generatedMorpheusRegistry.js
+const web3AuthVerifierHash = '0x1111f5b6b046a964c75d208998c13945ce172e85';
 
 const accountIdHash = aaClient.deriveRegistrationAccountIdHash({
   verifierContractHash: web3AuthVerifierHash,
