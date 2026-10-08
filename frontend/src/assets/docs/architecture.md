@@ -130,7 +130,9 @@ The app workspace is V3-first:
 - operators can choose client broadcast or relay submission
 - shared drafts keep only the latest 100 activity entries and 12 submission receipts
 
-Legacy `executeUnifiedByAddress` handling remains compatibility-only and should not be presented as the primary runtime path.
+The V1/V2 wrappers `executeUnified` and `executeUnifiedByAddress` were removed: no deployed
+manifest and no contract source defines them, so only `executeUserOp` (or `executeUserOps` for
+a batch) reaches the current runtime.
 
 ## 9. Module Lifecycle
 

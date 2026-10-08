@@ -99,11 +99,15 @@ future-plugin storage semantics.
 | **Bounded gas** | *(CRITICAL)* Prevent DoS | The matching private AA artifact uses `System.Contract.CallWithGasLimit` for verifier and hook callbacks; ordinary descendants inherit the callback's ancestor budget. Native activation and public deployment remain separate gates. |
 | **Signature length check** | Prevent malformed input | Assert `signature.Length == expected` |
 | **Return boolean only** | Validation pattern | Don't throw on normal rejections |
-| **No state mutation** | Pure validation | Never write storage in `ValidateSignature` |
+| **No state mutation** | Pure validation | Never write storage in `validateSignature` |
 
 ### 2.3 Common Vulnerabilities
 
-#### VULN-001: Missing Network ID
+The `PG-*` identifiers below are this guide's plugin-development checklist. The project's
+vulnerability ledger is a different namespace with its own `VULN-001` to `VULN-006`, kept in
+`docs/SECURITY_MODEL.md` section 6.1; do not read a `PG-*` item as a ledger entry.
+
+#### PG-01: Missing Network ID
 
 **Severity:** Critical
 
@@ -118,7 +122,7 @@ byte[] payload = Helper.Concat(
 );
 ```
 
-#### VULN-002: Mutable State in Validation
+#### PG-02: Mutable State in Validation
 
 **Severity:** High
 
@@ -137,7 +141,7 @@ public static bool ValidateSignature(UInt160 accountId, UserOperation op)
 }
 ```
 
-#### VULN-003: Unbounded Gas Consumption
+#### PG-03: Unbounded Gas Consumption
 
 **Severity:** Critical
 
@@ -166,7 +170,7 @@ public static bool ValidateSignature(UInt160 accountId, UserOperation op)
 }
 ```
 
-#### VULN-004: Signature Forgery via Length Extension
+#### PG-04: Signature Forgery via Length Extension
 
 **Severity:** Critical
 
@@ -262,8 +266,8 @@ over `Global`.
 
 | Check | Why | Implementation |
 | --- | --- | --- |
-| **Authority validation** | Prevent unauthorized configuration | Call `CanConfigureHook` before writes |
-| **Context validation** | Ensure AA core is caller | Call `CanExecuteHook` before execution |
+| **Authority validation** | Prevent unauthorized configuration | Configuration reaches a hook through the AA core, and the shipped hooks gate it on their stored `authorizedCore` (`HookAuthority.ValidateAdminCaller`); the core's read method is `canConfigureHook(accountId, hookHash)` |
+| **Context validation** | Ensure AA core is caller | The hook checks the calling core against its stored `authorizedCore`; the core's read method is `canExecuteHook(accountId, hookHash, …)` |
 | **Revert on reject** | Atomic rejection pattern | Throw `ExecutionEngine.Assert` |
 | **No external calls in Pre** | Prevent reentrancy | Only inspect parameters |
 | **Careful Post logic** | No validation in post | Only cleanup/logging |
@@ -272,7 +276,7 @@ over `Global`.
 
 ### 3.3 Common Vulnerabilities
 
-#### VULN-005: Reentrancy in PreExecute
+#### PG-05: Reentrancy in PreExecute
 
 **Severity:** High
 
@@ -311,7 +315,7 @@ public static void PostExecute(UInt160 accountId, object[] opParams, object resu
 }
 ```
 
-#### VULN-006: Double-Spend in PostExecute
+#### PG-06: Double-Spend in PostExecute
 
 **Severity:** High
 
@@ -342,7 +346,7 @@ public static void PostExecute(UInt160 accountId, object[] opParams, object resu
 }
 ```
 
-#### VULN-007: Incorrect Result Handling
+#### PG-07: Incorrect Result Handling
 
 **Severity:** Medium
 

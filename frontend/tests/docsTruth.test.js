@@ -90,7 +90,7 @@ const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'System', 'CryptoLib
 const NON_CALLABLES = new Set(['create_aa_draft', 'claimCommitment', 'callData', 'signMessage', 'getPending']);
 
 const ENTRYPOINT = /^(?:execute|register|preview|initiate|finalize|settle|update|cancel|confirm|propose|compute|get|set|is|has|can|withdraw|revoke|rotate|claim|deposit|call|lock|unlock|create|build|derive|validate|query|prepare|sign|broadcast|discover)[A-Z][A-Za-z0-9]*$/;
-const REMOVED = /remov|no longer|not part|does not exist|absent|retired|deleted|dropped|gone|were never/i;
+const REMOVED = /remov|superseded|no longer|not part|does not exist|never existed|absent|retired|deleted|dropped|gone|were never/i;
 
 const deployedAbi = new Map(); // exact ABI name -> the manifest that carries it
 for (const file of fs.readdirSync(path.join(repoRoot, 'contracts/build'))) {
@@ -274,7 +274,7 @@ function failures() {
         if (markedRemoved) continue;
         problems.push(`${where}: ${name} is not defined in any contract, manifest or SDK source and the line does not mark it removed`);
       }
-      if (nameRules) for (const match of line.matchAll(/\b(?:aaClient|client|sdk)\.([A-Za-z_]\w*)\s*\(/g)) {
+      if (nameRules && !markedRemoved) for (const match of line.matchAll(/\b(?:aaClient|client|sdk)\.([A-Za-z_]\w*)\s*\(/g)) {
         const name = match[1];
         if (legacySdkMethods.has(name)) problems.push(`${where}: ${name} always throws LEGACY_V3_REMOVED in the SDK and must not be documented as usable`);
         else if (!sdkMethods.has(name)) problems.push(`${where}: ${name} is not an SDK method`);
@@ -308,6 +308,38 @@ function failures() {
 test('CU-163: the current-runtime documents state only what the code and the deployed artifacts decide', () => {
   const problems = failures();
   assert.deepEqual(problems, [], `documentation drift:\n${problems.join('\n')}`);
+});
+
+// The ledger, not a document's prose, is the current VULN-001 state. While the deployed artifact
+// carries no bounded call site the ledger must say the public state is open; if the artifact ever
+// gains the bounded call, this fails until the ledger is updated too.
+test('CU-163: the VULN-001 ledger agrees with the deployed artifact', () => {
+  const row = read('docs/SECURITY_MODEL.md').split('\n').find((line) => /\*\*VULN-001\*\*/.test(line));
+  assert.ok(row, 'docs/SECURITY_MODEL.md has no VULN-001 row');
+  if (gasBoundedSites.length === 0) {
+    assert.match(row, /open|not\b|pending/i,
+      `the deployed core has no ${GAS_BOUNDED_SYSCALL} call site, so the ledger must not close VULN-001 for the public build`);
+  }
+});
+
+// Presentation rule for snapshot audits: a VULN-00N item must sit under a heading that calls the
+// snapshot historical. This is weaker than the artifact checks above and is stated as such — it
+// cannot prove an item is right, only that a reader is not shown a pre-remediation list as current.
+// The rendered copy must also stay equal to the repository copy, which is the copy the ledger rule
+// above is about.
+test('CU-163: the rendered audit presents its findings as the historical snapshot', () => {
+  for (const file of AUDIT_DOCS) {
+    const lines = read(file).split('\n');
+    let heading = '';
+    lines.forEach((line, index) => {
+      if (/^#{1,4}\s/.test(line)) heading = line;
+      if (!/VULN-00\d/.test(line)) return;
+      const marked = /historical|archived|retained for audit/i.test(line) || /historical|archived|retained for audit/i.test(heading);
+      assert.ok(marked, `${file}:${index + 1}: a VULN-00N item is presented outside a historical section`);
+    });
+  }
+  assert.equal(read('frontend/src/assets/docs/SECURITY_AUDIT.md'), read('docs/SECURITY_AUDIT.md'),
+    'the rendered security audit has drifted from docs/SECURITY_AUDIT.md');
 });
 
 test('CU-163: the V2-era documents do not grow new dead references (ratchet)', () => {

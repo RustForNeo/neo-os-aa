@@ -156,6 +156,6 @@ The Paymaster never authorizes execution — it only funds the relay after the v
 2. Nonces are consumed by the core wallet, not verifier plugins.
 3. Verifier plugins do not bypass hook or target-contract policy.
 4. Backup-owner recovery is timelocked.
-5. New integrations should target `executeUserOp`; legacy `executeUnifiedByAddress` is compatibility-only.
+5. New integrations target `executeUserOp`; the V1/V2 wrappers `executeUnified` and `executeUnifiedByAddress` were removed and are absent from every deployed manifest and every contract source, so a transaction naming them fails in its verify phase.
 6. Paymaster settlement only succeeds when called by the authorized AA core contract.
 7. Paymaster deposit deduction happens before the GAS transfer to the relay (checks-effects-interactions).
