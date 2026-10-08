@@ -276,6 +276,11 @@ function failures() {
         if (markedRemoved) continue;
         problems.push(`${where}: ${name} is not defined in any contract, manifest or SDK source and the line does not mark it removed`);
       }
+      if (nameRules && fence && !markedRemoved) for (const match of line.matchAll(/\b0x[0-9a-fA-F]{40}\b/g)) {
+        if (canonicalHashes.has(match[0].toLowerCase())) continue;
+        if (!/current|canonical|verified hardened|masterHash|AA_RELAY_ALLOWED_HASH/i.test(line)) continue;
+        problems.push(`${where}: ${match[0]} is presented as the current deployment but is not in generatedMorpheusRegistry.js`);
+      }
       if (nameRules && !markedRemoved) for (const match of line.matchAll(/\b(?:aaClient|client|sdk)\.([A-Za-z_]\w*)\s*\(/g)) {
         const name = match[1];
         if (legacySdkMethods.has(name)) problems.push(`${where}: ${name} always throws LEGACY_V3_REMOVED in the SDK and must not be documented as usable`);
@@ -284,13 +289,6 @@ function failures() {
       for (const match of line.matchAll(/`(docs\/[\w./-]+\.(?:json|md))`/g)) {
         if (!exists(match[1])) problems.push(`${where}: cited receipt ${match[1]} does not exist`);
       }
-      if (nameRules) for (const match of line.matchAll(/\b0x[0-9a-fA-F]{40}\b/g)) {
-        const hash = match[0].toLowerCase();
-        if (canonicalHashes.has(hash)) continue;
-        if (!/current|canonical|verified hardened|masterHash|AA_RELAY_ALLOWED_HASH/i.test(line)) continue;
-        if (markedRemoved) continue;
-        problems.push(`${where}: ${match[0]} is presented as the current deployment but is not in generatedMorpheusRegistry.js`);
-      }
       if (/VULN-001/.test(line) && /fix|clos|resolv|mitigat|eliminat/i.test(line) && !/private|only|not\b|pending|open|historical/i.test(line)) {
         if (gasBoundedSites.length === 0) {
           problems.push(`${where}: ${file} claims VULN-001 closed, but ${deployedCorePath} carries no ${GAS_BOUNDED_SYSCALL} call site`);
@@ -298,6 +296,19 @@ function failures() {
       }
     });
     if (nameRules) {
+      // Hashes in prose are checked per paragraph, not per line: the prose wraps, and a stale
+      // anchor on the second line of a sentence must not escape the rule. Fenced examples keep the
+      // line check above, because a code block is where a placeholder hash lives.
+      const prose = read(file).replace(/^\s*```[\s\S]*?^\s*```/gm, '');
+      for (const paragraph of prose.split(/\n\s*\n/)) {
+        const flat = paragraph.replace(/\s+/g, ' ');
+        if (!/current|canonical|verified hardened|masterHash|AA_RELAY_ALLOWED_HASH/i.test(flat)) continue;
+        if (REMOVED.test(flat)) continue;
+        for (const match of flat.matchAll(/\b0x[0-9a-fA-F]{40}\b/g)) {
+          if (canonicalHashes.has(match[0].toLowerCase())) continue;
+          problems.push(`${file}: ${match[0]} is presented as the current deployment but is not in generatedMorpheusRegistry.js (paragraph: ${flat.slice(0, 90)}…)`);
+        }
+      }
       // A section that reports the matrix as verified or passed must say which target the run used.
       // The script that produced the record targets MockTransferTarget, so the disclosure is not
       // prose decoration: without it a reader takes an authorization result for a value transfer.

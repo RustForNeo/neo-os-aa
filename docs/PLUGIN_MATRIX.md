@@ -16,7 +16,7 @@ Refresh note on 2026-03-15 (corrected 2026-10-09):
 - the canonical shared testnet AA core is `0xdbf38e7b2117186bf7a5e17ead702322c0c5b6f2`
 - the canonical shared testnet `AA Web3AuthVerifier` anchor is
   `0x1111f5b6b046a964c75d208998c13945ce172e85`; the `0x7147f9a508594a7656a25f45d0a7a7dede7c227f`
-  this note used to name is not in `frontend/src/config/generatedMorpheusRegistry.js`
+  this note used to name is absent from `frontend/src/config/generatedMorpheusRegistry.js`
 - the deployment set below is preserved as the historical matrix run environment
 
 This report records the V3 verifier/hook matrix that was executed on testnet after hardening the current branch.
