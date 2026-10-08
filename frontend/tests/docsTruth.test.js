@@ -297,11 +297,24 @@ function failures() {
         }
       }
     });
-    if (nameRules && /verified on-chain|passed on testnet/i.test(read(file))) {
-      const text = read(file);
-      if (!/MockTransferTarget|mock (contract|target)/i.test(text)) {
-        problems.push(`${file}: reports the plugin matrix as verified on chain without disclosing the MockTransferTarget target the matrix script uses`);
+    if (nameRules) {
+      // A section that reports the matrix as verified or passed must say which target the run used.
+      // The script that produced the record targets MockTransferTarget, so the disclosure is not
+      // prose decoration: without it a reader takes an authorization result for a value transfer.
+      let section = [];
+      const flush = (heading) => {
+        const text = section.join('\n');
+        if (/verified on-chain|passed on testnet/i.test(text) && !/MockTransferTarget|mock (contract|target)/i.test(text)) {
+          problems.push(`${file}: the section "${heading}" reports the plugin matrix as verified on chain without disclosing the MockTransferTarget target the matrix script uses`);
+        }
+        section = [];
+      };
+      let heading = 'preamble';
+      for (const line of read(file).split('\n')) {
+        if (/^#{1,6}\s/.test(line)) { flush(heading); heading = line.trim(); }
+        section.push(line);
       }
+      flush(heading);
     }
   }
   return problems;
