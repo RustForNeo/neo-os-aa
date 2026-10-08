@@ -30,3 +30,23 @@ regexTarget = "match"
 # An X25519 PKCS#8 private key is 48 DER bytes: this 21-character base64 prefix, then 43
 # characters of key material, no padding.
 regexes = ['''^GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI[A-Za-z0-9+/]{43}'$''']
+
+[[allowlists]]
+description = """\
+The Web3AuthVerifier script hash of the canonical shared TestNet deployment. A contract \
+script hash is public chain data, published here in a documentation example, and is not a \
+credential. Triaged 2026-10-09 (RV-DSCU163R1-r1, minor): generic-api-key reports the \
+`name = '0x<40 hex>'` assignment shape in the SDK usage document. The same hash appears in \
+plain backticks in README.md:120, docs/PLUGIN_MATRIX.md:18 and the registry module \
+frontend/src/config/generatedMorpheusRegistry.js, where it is not reported. The allowance is \
+one rule, one file and the exact assignment line carrying this value: a different value on \
+that line, the same value assigned anywhere else, or any other secret in this file is still \
+reported.\
+"""
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^frontend/src/assets/docs/sdk-usage\.md$''']
+regexTarget = "line"
+# The full line, anchored, with the literal reviewed value: `const web3AuthVerifierHash =
+# '0x1111f5b6b046a964c75d208998c13945ce172e85';` (sdk-usage.md:45).
+regexes = ['''^[[:space:]]*const web3AuthVerifierHash = '0x1111f5b6b046a964c75d208998c13945ce172e85';[[:space:]]*$''']
