@@ -60,17 +60,36 @@ const NATIVE_PROFILE_DOCS = ['docs/NATIVE_SDK.md', 'docs/NATIVE_ACCOUNT_WORKSPAC
 const nativeAbiNames = new Set(Object.keys(NATIVE_REQUIRED_ABI));
 const NO_NAMES = new Set();
 
-// Documents that still describe the removed V2 runtime. The list is a ratchet: it records the
-// exact names each document may still mention and fails when one grows (new drift) or shrinks
-// (the document was corrected and the entry must be dropped). DS-CU-163 section 10 recommends
-// the follow-up row that removes the remaining entries.
+// Documents that still name something the deployed runtime does not carry. The list is a ratchet: it
+// records the exact names each document may still mention and fails when one grows (new drift) or
+// shrinks (the document was corrected and the entry must be dropped). DS-CU-202 worked the list down
+// from 31 files / 109 names to the entries below; every remaining entry carries a reason it must stay
+// (row CU-202 acceptance), and an entry that also carries a `marker` is only accepted while the
+// document itself still says so - the marker is a scope declaration, not a behaviour oracle.
 const V2_DEBT = {
-  'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
-  'docs/ETHEREUM_AA_COMPARISON.md': ['entrypoint:validateUserOp'],
-  'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
-  'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
-  'docs/SECURITY_AUDIT_RESULTS.md': ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
-  'frontend/src/assets/docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
+  'docs/DEPENDENCY-CONVERGENCE-20261008.md': {
+    names: ['entrypoint:getAuthTokenInfo'],
+    reason: 'The name is the token API of the Web3Auth v11 SDK upgrade this record rejects, not a Neo contract method; the document is a package decision record, and no deployed manifest carries it.',
+  },
+  'docs/ETHEREUM_AA_COMPARISON.md': {
+    names: ['entrypoint:validateUserOp'],
+    reason: 'The name is the Ethereum ERC-4337 validator entry point on the Ethereum side of an explicit mapping (IVerifier.validateSignature is compared with IValidator.validateUserOp), not a Neo entrypoint.',
+  },
+  'docs/SECURITY_AUDIT.md': {
+    names: ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
+    reason: 'Dated audit (March 11, 2026) of an earlier contract generation: the names and code quotes are that revision\'s, and the document is bannered as historical context rather than a description of the current system.',
+    marker: 'retained as historical security context',
+  },
+  'docs/SECURITY_AUDIT_RESULTS.md': {
+    names: ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
+    reason: 'Dated audit (2026-03-29): the finding sections preserve original evidence, status labels and code snippets of the audited revision, and the status note says not to read the snippets as a description of the deployed artifact.',
+    marker: 'some original code snippets/status labels are intentionally historical',
+  },
+  'frontend/src/assets/docs/SECURITY_AUDIT.md': {
+    names: ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
+    reason: 'The rendered copy of the dated March 11, 2026 audit: the guard requires this file to equal docs/SECURITY_AUDIT.md byte for byte, so its entries stand or fall with that file and its historical banner.',
+    marker: 'retained as historical security context',
+  },
 };
 
 // Framework and service calls that share a name with a contract method but are not one.
@@ -444,5 +463,16 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
     console.log(JSON.stringify(found, null, 2));
     return;
   }
-  assert.deepEqual(found, V2_DEBT, 'the V2-era debt list changed: a document drifted, or a corrected document must be removed from the ratchet');
+  // The recorded list is exact: a new dead reference, a new document, or an entry that is no longer
+  // found all fail. Every recorded entry also has to carry the reason it must stay, and an entry with
+  // a marker has to find that marker in its document, so a scope note cannot be deleted silently.
+  const recorded = Object.fromEntries(Object.entries(V2_DEBT).map(([file, entry]) => [file, entry.names]));
+  assert.deepEqual(found, recorded, 'the V2-era debt list changed: a document drifted, or a corrected document must be removed from the ratchet');
+  for (const [file, entry] of Object.entries(V2_DEBT)) {
+    assert.ok(entry.reason && entry.reason.length >= 40, `${file}: the ratchet entry needs a reason it must stay`);
+    if (entry.marker) {
+      assert.ok(exists(file) && read(file).includes(entry.marker),
+        `${file}: the justification claims a scope declaration the document no longer carries: ${entry.marker}`);
+    }
+  }
 });

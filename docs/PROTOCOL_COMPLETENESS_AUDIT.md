@@ -45,16 +45,16 @@ This is **interoperability at the adapter boundary**, not a claim of full ERC-43
 **Implementation Location:** `contracts/UnifiedSmartWallet.Accounts.cs`
 
 **Features:**
-- **Installation:** `RegisterAccount()` sets initial verifier and hook
-- **Update with Timelock:** `UpdateVerifier()` and `UpdateHook()` create pending updates with 7-day (604,800s) ConfigUpdateTimelock
-- **Confirmation:** `ConfirmVerifierUpdate()` and `ConfirmHookUpdate()` allow completion after timelock
-- **Cancellation:** `CancelVerifierUpdate()` and `CancelHookUpdate()` allow immediate cancel
+- **Installation:** `registerAccount()` sets initial verifier and hook
+- **Update with Timelock:** `updateVerifier()` and `updateHook()` create pending updates with 7-day (604,800s) ConfigUpdateTimelock
+- **Confirmation:** `confirmVerifierUpdate()` and `confirmHookUpdate()` allow completion after timelock
+- **Cancellation:** `cancelVerifierUpdate()` and `cancelHookUpdate()` allow immediate cancel
 - **Authorization:** All config changes require `BackupOwner` native witness
-- **Authority Checks:** `VerifierAuthority.CanConfigureVerifier()` and `HookAuthority.CanConfigureHook()`
+- **Authority Checks:** `VerifierAuthority.canConfigureVerifier()` and `HookAuthority.canConfigureHook()`
 - **Events:** All lifecycle events emitted (ModuleInstalled, ModuleUpdateInitiated, ModuleUpdateConfirmed, ModuleUpdateCancelled, ModuleRemoved)
 
 **Comparison to ERC-7579:**
-- ERC-7579 `onInstall(bytes32)` → Neo's `RegisterAccount()` with direct call
+- ERC-7579 `onInstall(bytes32)` → Neo's `registerAccount()` with direct call
 - ERC-7579 `onUninstall(bytes32)` → Neo's authorization-based removal
 - ERC-7579 timelock not specified → Neo enforces 7-day minimum
 - Neo is **more conservative** with 7-day hard minimum (vs no requirement)
@@ -89,7 +89,7 @@ key = Helper.Concat(key, nonce.ToByteArray());
 **Replay Protection:**
 - `IsNonceAcceptable()` prevents re-execution
 - `ConsumeNonce()` advances sequence atomically
-- `Deadline` check in `ExecuteUserOp()` prevents expired replay
+- `Deadline` check in `executeUserOp()` prevents expired replay
 - `Runtime.GetNetwork()` in signing payload prevents cross-chain replay
 
 **Comparison to ERC-4337:**
@@ -111,16 +111,16 @@ stateDiagram-v2
     [*] --> Configured: BackupOwner set
     Configured --> EscapeInitiated: InitiateEscape() called
     EscapeInitiated --> [*]: Normal op cancels escape
-    EscapeInitiated --> EscapeFinalized: Timelock expires + FinalizeEscape()
+    EscapeInitiated --> EscapeFinalized: Timelock expires + finalizeEscape()
     EscapeFinalized --> [*]: Verifier reset to BackupOwner
 ```
 
 **Features:**
 - **Timelock:** Configurable 7-90 days (604,800-7,776,000 seconds)
 - **Cooldown:** 7-day minimum between escape initiation attempts
-- **Cancel-on-Use:** Any normal `ExecuteUserOp()` cancels in-progress escape
+- **Cancel-on-Use:** Any normal `executeUserOp()` cancels in-progress escape
 - **Activity Cancellation:** Backup owner can cancel active escape
-- **Finalization:** `FinalizeEscape()` rotates to new verifier and clears state
+- **Finalization:** `finalizeEscape()` rotates to new verifier and clears state
 - **Events:** `EscapeInitiated`, `EscapeFinalized`, `EscapeCancelled` emitted
 
 **Security Properties:**
@@ -186,7 +186,7 @@ public struct AccountState {
 2. **Execution Lock:** `SetExecutionLock()` / `ClearExecutionLock()` prevents reentrancy
 3. **Verify Context:** `SetVerifyContext(accountId)` limits signature verification window
 4. **Hook Context:** `SetHookExecutionContext(accountId)` limits hook execution scope
-5. **Single Transaction:** State update in `ExecuteUserOp()` is atomic
+5. **Single Transaction:** State update in `executeUserOp()` is atomic
 
 **Reentrancy Protection:**
 ```csharp
@@ -211,8 +211,8 @@ ExecutionEngine.Assert(!IsAnyExecutionActive(), "Reentrant call rejected");
 **Features:**
 - **Entry:** `EnterMarketEscrow(accountId, marketContract, listingId)`
 - **Block:** While escrow is active, normal operations and config changes are blocked
-- **Cancellation:** `CancelMarketEscrow(accountId, listingId)` clears escrow without changing control
-- **Settlement:** `SettleMarketEscrow(accountId, listingId, newBackupOwner)` transfers shell, wipes prior state
+- **Cancellation:** `cancelMarketEscrow(accountId, listingId)` clears escrow without changing control
+- **Settlement:** `settleMarketEscrow(accountId, listingId, newBackupOwner)` transfers shell, wipes prior state
 - **Exclusivity:** Both market contract and escrow listing must match
 - **Clean Account:** Settlement removes verifier, hook, and escape state
 
@@ -264,7 +264,7 @@ ClearVerifyContext(accountId);
 - **Verify Context:** Limits `CheckWitness(accountId)` to specific execution
 - **No State Changes:** Verifiers called with `CallFlags.ReadOnly`
 - **Isolation:** Verifiers cannot directly access account state
-- **Authority Gating:** `VerifierAuthority.CanConfigureVerifier()` checks permissions
+- **Authority Gating:** `VerifierAuthority.canConfigureVerifier()` checks permissions
 
 **Supported Verifiers:**
 - **Web3AuthVerifier:** EVM EIP-712 signatures
@@ -300,7 +300,7 @@ Response: { approved: boolean, reason?: string }
 - **Network Isolation:** Testnet/Mainnet separation
 
 **Comparison to ERC-4337:**
-- ERC-4337: On-chain `validatePaymasterUserOp()` contract
+- ERC-4337: On-chain `validatePaymasterUserOp()` contract; that name is absent from the Neo ABI, where the on-chain paymaster validates through `validatePaymasterOp`
 - Neo: **Off-chain only** - simpler but less verifiable on-chain
 - Neo: **Advantage:** No per-op gas estimation overhead
 - Neo: **Trade-off:** Reduced on-chain transparency
@@ -408,7 +408,7 @@ Response: { approved: boolean, reason?: string }
    this private validation closure.
 
 2. **Preserve the current market/escape hardening**
-   - Keep `IsMarketEscrowActive()` checks on normal escape/configuration paths.
+   - Keep `isMarketEscrowActive()` checks on normal escape/configuration paths.
    - Keep market settlement and owner-force-cancel cleanup fail-closed, and
      add a concrete cleanup/refinement proof for every future plugin profile.
      The manifest lifecycle preflight rejects marker-only, wrong-typed, or incomplete
@@ -449,10 +449,10 @@ Response: { approved: boolean, reason?: string }
 6. **Add Per-Account Gas Limits**
    - Implement account-level gas cap configuration
    - Store `maxDailyGas` in `AccountState`
-   - Enforce in `ExecuteUserOp()` before execution
+   - Enforce in `executeUserOp()` before execution
 
 7. **Implement On-chain Paymaster Option**
-   - Add `validatePaymasterUserOp()` method to `PaymasterVerifier`
+   - Add a `validatePaymasterUserOp()`-style method to `PaymasterVerifier`; it is absent from the deployed manifest today, so this is a proposal, not a shipped ABI
    - Allow on-chain paymaster sponsorship as alternative to off-chain
 
 ### Low Priority (Documentation)
