@@ -15,9 +15,11 @@
 // contracts build compiles with nccs, whose `Helper.GetDisplayName(symbol, lowercase: true)` (called
 // by `AbiMethod`'s constructor) lower-cases the first character of every exported member's name, so
 // `ClearAccount` in `contracts/**` is `clearAccount` in a manifest. The rule is stated for contract
-// authors in neo-os-contracts `contracts/README.md` ("The deployed spelling of an exported member");
-// this guard derives the set it affects (the divergent class below) from the manifests and the
-// sources instead of listing names. SS7 of DS-CU-212-20261009.md records the measurement.
+// authors in neo-os-contracts `contracts/README.md`, section "The deployed spelling of an exported
+// member" (branch `ds/cu-212-abi-spelling-docs` of that repository at the time of writing; the
+// section is new in CU-212); this guard derives the set it affects (the divergent class below) from
+// the manifests and the sources instead of listing names. Section 2 of DS-CU-212-20261009.md records
+// the measurement.
 //
 // A rule must be able to fail, so §7 of DS-CU-163-20261009.md pairs every rule with a document
 // mutant and, where the rule reads an artifact, an oracle mutant.
@@ -200,8 +202,8 @@ for (const file of tracked) {
 
 // The spelling the compiler exports a C# member under, from the build's own rule and not from a
 // list: nccs lower-cases the first character of the name (`_deploy` keeps its underscore and
-// lower-cases the second). See the rule stated in neo-os-contracts `contracts/README.md`
-// ("The deployed spelling of an exported member") and in the compiler's Helper.GetDisplayName,
+// lower-cases the second). See the rule stated in neo-os-contracts `contracts/README.md`, section
+// "The deployed spelling of an exported member", and in the compiler's Helper.GetDisplayName,
 // which AbiMethod calls with lowercase: true.
 const deployedSpellingOfSource = (name) => (name.startsWith('_')
   ? `_${name.slice(1, 2).toLowerCase()}${name.slice(2)}`
@@ -1746,6 +1748,3 @@ test('CU-211: each case rule is killed by its planted drift', () => {
     }
   }
 });
-
-// Dated snapshots whose own scope note says their code snippets are evidence of the revision they
-// audited rather than a description of the deployed artifact. The guard requires the phrase to be
