@@ -69,6 +69,12 @@ const NO_NAMES = new Set();
 // from 31 files / 109 names to the entries below; every remaining entry carries a reason it must stay
 // (row CU-202 acceptance), and an entry that also carries a `marker` is only accepted while the
 // document itself still says so - the marker is a scope declaration, not a behaviour oracle.
+//
+// A `spelling:` entry reads `<written>-><deployed>`: the document writes a spelling that differs from
+// the one the manifest exports, which is a false claim about the deployed artifact even when the C#
+// source defines the written spelling (DS-CU-211, DEC-DS-5). CU-202 recorded these 27 entries in a
+// `case:` bucket that described only the letter that differed; they are the same 27 entries with the
+// same reasons, renamed to say what they are, and the count is unchanged at 34.
 const V2_DEBT = {
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': {
     names: ['entrypoint:getAuthTokenInfo'],
@@ -79,17 +85,17 @@ const V2_DEBT = {
     reason: 'The name is the Ethereum ERC-4337 validator entry point on the Ethereum side of an explicit mapping (IVerifier.validateSignature is compared with IValidator.validateUserOp), not a Neo entrypoint.',
   },
   'docs/SECURITY_AUDIT.md': {
-    names: ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
+    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:ValidateSignature->validateSignature'],
     reason: 'Dated audit (March 11, 2026) of an earlier contract generation: the names and code quotes are that revision\'s, and the document is bannered as historical context rather than a description of the current system.',
     marker: 'retained as historical security context',
   },
   'docs/SECURITY_AUDIT_RESULTS.md': {
-    names: ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
+    names: ['entrypoint:IsAnyExecutionActive', 'spelling:CallHook->callHook', 'spelling:CallVerifier->callVerifier', 'spelling:CanConfigureHook->canConfigureHook', 'spelling:CanConfigureVerifier->canConfigureVerifier', 'spelling:ConfirmHookUpdate->confirmHookUpdate', 'spelling:ConfirmVerifierUpdate->confirmVerifierUpdate', 'spelling:CreateListing->createListing', 'spelling:ExecuteUserOp->executeUserOp', 'spelling:FinalizeEscape->finalizeEscape', 'spelling:InitiateEscape->initiateEscape', 'spelling:RegisterAccount->registerAccount', 'spelling:RotateAdmin->rotateAdmin', 'spelling:SetDailyLimit->setDailyLimit', 'spelling:SetHooks->setHooks', 'spelling:SetSessionKey->setSessionKey', 'spelling:SettleListing->settleListing', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:UpdateHook->updateHook', 'spelling:UpdateListingPrice->updateListingPrice', 'spelling:UpdateVerifier->updateVerifier', 'spelling:ValidateSignature->validateSignature'],
     reason: 'Dated audit (2026-03-29): the finding sections preserve original evidence, status labels and code snippets of the audited revision, and the status note says not to read the snippets as a description of the deployed artifact.',
     marker: 'some original code snippets/status labels are intentionally historical',
   },
   'frontend/src/assets/docs/SECURITY_AUDIT.md': {
-    names: ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
+    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:ValidateSignature->validateSignature'],
     reason: 'The rendered copy of the dated March 11, 2026 audit: the guard requires this file to equal docs/SECURITY_AUDIT.md byte for byte, so its entries stand or fall with that file and its historical banner.',
     marker: 'retained as historical security context',
   },
@@ -122,6 +128,11 @@ for (const file of fs.readdirSync(path.join(repoRoot, 'contracts/build'))) {
   for (const event of manifest.abi.events ?? []) deployedAbi.set(event.name, file);
 }
 const deployedAbiLower = new Map([...deployedAbi.keys()].map((name) => [name.toLowerCase(), name]));
+// The deployed spelling of a name that differs from the one a document wrote, or undefined when no
+// manifest exports the name at all. The map is case-insensitive on purpose: it is how the guard
+// FINDS a spelling mismatch, and the rules below are what decide whether such a name is live
+// (DS-CU-211). No lowercase key maps to two different exact spellings in this repository.
+const deployedSpelling = (name) => deployedAbiLower.get(name.toLowerCase());
 
 // Every name the repository defines or calls somewhere in code. A documented name that is absent
 // from both this set and the deployed ABI is dead unless the sentence marks it removed. Strings and
@@ -152,6 +163,18 @@ for (const file of tracked) {
   for (const line of text.split('\n')) {
     if (!/ContractPermission|Contract\.Call/.test(line)) continue;
     for (const match of line.matchAll(/"([A-Za-z_]\w*)"/g)) definedNames.add(match[1]);
+  }
+}
+
+// C# method definitions in the contract sources, by their exact spelling. The compiler lower-cases
+// the first letter of an exported member, so most of these are members the manifests spell
+// differently; the set exists so the liveness rule below can say WHICH artifact makes a name live
+// (DS-CU-211, DEC-DS-5) instead of inferring it from the shape of the name.
+const sourceDefinitions = new Set();
+for (const file of tracked) {
+  if (!file.startsWith('contracts/') || !file.endsWith('.cs')) continue;
+  for (const match of read(file).matchAll(/^\s*(?:\[[^\]]*\]\s*)*(?:public|private|protected|internal)\s+(?:static\s+)?(?:async\s+)?[\w<>[\],.?\s]+?\s+([A-Za-z_]\w*)\s*\(/gm)) {
+    sourceDefinitions.add(match[1]);
   }
 }
 
@@ -334,10 +357,25 @@ const NO_FENCE_CLAIMS = /<!--\s*docs-truth:\s*no fence claims for ([a-z0-9, ]+);
 // never available implicitly, and a new document cannot adopt it without the guard's list changing.
 const HISTORICAL_SNIPPET_SCOPE = /retained as historical security context|as a description of the deployed artifact/i;
 
-// A name is live here exactly when the `entrypoint:` pattern of the ratchet treats it as live, so
-// the fence scan widens the measurement without widening any allowance.
+// A name is live when an artifact spells it that way, and the artifact decides (DS-CU-211,
+// DEC-DS-5):
+//
+//   * a contract ABI member is live ONLY in its manifest spelling. A document that writes any other
+//     spelling of an exported member - including the C# source spelling of it - asserts a name the
+//     deployment does not carry, so it is debt. This is the half CU-210 finding F6 measured: the
+//     previous rule asked `deployedAbiLower.has(name.toLowerCase())` and therefore judged
+//     `CanExecuteHook` live while every manifest exports `canExecuteHook`;
+//   * a C# definition no manifest exports is live as source. `CallVerifierChild`
+//     (contracts/UnifiedSmartWallet.VerifierChildren.cs) is the recorded example: the pinned build
+//     does not export it (DS-CU-202 finding F1), and a document that names it names real code.
+//
+// The two halves are why the rule keys on the artifact rather than on letter case: refusing every
+// PascalCase name would kill the second class, and accepting every case variant would keep the
+// first invisible.
 function isLiveName(name, file) {
-  if (deployedAbi.has(name) || definedNames.has(name) || sdkMethods.has(name)) return true;
+  if (deployedAbi.has(name)) return true;
+  if (deployedSpelling(name) !== undefined) return false;
+  if (sourceDefinitions.has(name) || definedNames.has(name) || sdkMethods.has(name)) return true;
   if (NATIVE_PROFILE_DOCS.includes(file) && nativeAbiNames.has(name)) return true;
   return false;
 }
@@ -404,8 +442,13 @@ function fenceScan() {
       // state label reading `InitiateEscape()` is reported and `HasID` inside `class … decision`
       // is recorded instead of being read as an entrypoint.
       if (DIAGRAM_LANGUAGES.has(language)) {
+        // A name the same line asserts as a call is a claim, not a mention: the two ledgers stay
+        // disjoint, so a label like `InitiateEscape()` is reported once as a claim and is never also
+        // recorded as a justified mention (DS-CU-211).
+        const claimed = new Set(fenceClaims(line));
         for (const match of line.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
           const name = match[1];
+          if (claimed.has(name)) continue;
           if (!ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1))) continue;
           if (FRAMEWORK_RECEIVERS.has(name) || NON_CALLABLES.has(name)) continue;
           if (isLiveName(name, file)) continue;
@@ -1082,7 +1125,16 @@ test('CU-163: no document closes VULN-001 for the public build while the deploye
   assert.deepEqual(claims, [], `a document claims VULN-001 closed for the public build while ${deployedCorePath} carries no ${GAS_BOUNDED_SYSCALL} call site:\n${claims.join('\n')}`);
 });
 
-test('CU-163: the V2-era documents do not grow new dead references (ratchet)', () => {
+// What the ratchet reads, as data, so a planted drift can call it and see exactly what the guard
+// would record. Three buckets, disjoint by construction:
+//
+//   entrypoint: a callable no artifact carries, on a line that does not mark it removed;
+//   spelling:   a spelling of an exported member that differs from the manifest spelling. This is
+//               debt, not a style difference: the document asserts a name the deployment does not
+//               export even where the C# source defines the PascalCase member (DS-CU-211, DEC-DS-5).
+//               The entry carries the deployed spelling so the ledger says what it should have been;
+//   sdk:        a client method that does not exist, or one that always throws LEGACY_V3_REMOVED.
+function ratchetDebt() {
   const patterns = {
     entrypoint: (line, file) => (REMOVED.test(line) ? [] : callableNames(line)
       .filter(({ name }) => !(NATIVE_PROFILE_DOCS.includes(file) ? nativeAbiNames : NO_NAMES).has(name))
@@ -1090,9 +1142,13 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
       // names client methods (buildBundle, buildChildTypedData) without the `client.` prefix that
       // the sdk rule below requires, and sdk/js/src/multisig.js exposes exactly those.
       .filter(({ name }) => !sdkMethods.has(name))
-      .filter(({ name }) => !deployedAbi.has(name) && !definedNames.has(name) && !deployedAbiLower.has(name.toLowerCase()))
+      // The `spelling` bucket below owns every case-variant entry, so such a name is reported once.
+      .filter(({ name }) => deployedSpelling(name) === undefined)
+      .filter(({ name }) => !isLiveName(name, file))
       .map(({ name }) => `entrypoint:${name}`)),
-    case: (line) => callableNames(line).filter(({ name }) => !deployedAbi.has(name) && deployedAbiLower.has(name.toLowerCase())).map(({ name }) => `case:${name}`),
+    spelling: (line) => callableNames(line)
+      .filter(({ name }) => !deployedAbi.has(name) && deployedSpelling(name) !== undefined)
+      .map(({ name }) => `spelling:${name}->${deployedSpelling(name)}`),
     sdk: (line) => [...line.matchAll(/\b(?:aaClient|client|sdk)\.([A-Za-z_]\w*)\s*\(/g)].flatMap((match) => legacySdkMethods.has(match[1]) ? [`legacy:${match[1]}`] : sdkMethods.has(match[1]) ? [] : [`sdk:${match[1]}`]),
   };
   const found = {};
@@ -1106,6 +1162,11 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
     }
     if (names.size) found[file] = [...names].sort();
   }
+  return found;
+}
+
+test('CU-163: the V2-era documents do not grow new dead references (ratchet)', () => {
+  const found = ratchetDebt();
   if (process.env.DOCS_TRUTH_REPORT) {
     console.log(JSON.stringify(found, null, 2));
     return;
@@ -1268,6 +1329,124 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
   for (const mutant of mutants) {
     const target = path.join(repoRoot, mutant.file);
     assert.ok(!fs.readFileSync(target, 'utf8').includes('setLegacyVerifierAddress'), `${mutant.file} kept a planted drift`);
+  }
+});
+
+// The rule CU-210 found case-blind (its finding F6): the oracle asked the deployed-ABI map and the
+// source scan in the same breath, so a document that wrote the C# spelling of an exported member was
+// judged live. The oracle now keys on the artifact that spells a name (DS-CU-211, DEC-DS-5), and this
+// test states both directions as data a reader can check.
+test('CU-211: the liveness oracle is case-aware in both directions', () => {
+  assert.equal(deployedSpelling('CanExecuteHook'), 'canExecuteHook',
+    'the VerifyContext member the finding names is no longer spelled canExecuteHook in a manifest');
+  assert.equal(isLiveName('CanExecuteHook', 'docs/SECURITY_AUDIT.md'), false,
+    'the C# source spelling of an exported member is live again; the fence scan cannot see such a name');
+  assert.equal(isLiveName('canExecuteHook', 'docs/SECURITY_AUDIT.md'), true,
+    'the manifest spelling of an exported member is not live');
+  assert.ok(sourceDefinitions.has('CallVerifierChild'),
+    'the source-definition oracle lost CallVerifierChild, the C# definition CU-202 finding F1 records as absent from the pinned build');
+  assert.equal(deployedSpelling('CallVerifierChild'), undefined,
+    'CallVerifierChild is exported by a manifest now, so the live-as-source control is stale');
+  assert.equal(isLiveName('CallVerifierChild', 'docs/SECURITY_AUDIT.md'), true,
+    'a C# definition that no manifest exports is treated as dead; the oracle is rejecting names by shape, not by artifact');
+  // The ledger keeps the two classes apart and says what the artifact exports, so a reader does not
+  // have to open a manifest to know what a `spelling:` entry should have been.
+  const found = ratchetDebt();
+  const buckets = { entrypoint: new Set(), spelling: new Set(), sdk: new Set(), legacy: new Set() };
+  for (const entries of Object.values(found)) {
+    for (const entry of entries) {
+      const bucket = entry.slice(0, entry.indexOf(':'));
+      const body = entry.slice(entry.indexOf(':') + 1);
+      buckets[bucket].add(body);
+      if (bucket !== 'spelling') continue;
+      const [written, deployed] = body.split('->');
+      assert.equal(deployedSpelling(written), deployed, `${entry} does not name the deployed spelling`);
+      assert.ok(!deployedAbi.has(written), `${entry} writes the deployed spelling and must not be recorded as debt`);
+    }
+  }
+  assert.deepEqual([...buckets.entrypoint].filter((name) => buckets.spelling.has(name)), [],
+    'the same name is recorded in both the entrypoint and the spelling bucket');
+});
+
+// Every rule above must be able to fail, so each one gets a document mutant, run against the real
+// file and restored in a finally. The mutants are asserted on the reported set, never on an exit
+// code, so an incidental failure elsewhere cannot count as a kill. DS-CU-211 section 5.
+test('CU-211: each case rule is killed by its planted drift', () => {
+  const mutants = [
+    {
+      rule: 'a document that writes the C# source spelling of an exported member is reported (the drift that was invisible before CU-211)',
+      file: 'docs/ETHEREUM_AA_COMPARISON.md',
+      plant: (text) => text.replace('Configured --> EscapeInitiated: initiateEscape(accountId) called', 'Configured --> EscapeInitiated: InitiateEscape() called'),
+      claim: 'InitiateEscape',
+      notMention: 'InitiateEscape',
+    },
+    {
+      rule: 'the same rule reaches a fenced C# block, not only a diagram',
+      file: 'docs/PROTOCOL_COMPLETENESS_AUDIT.md',
+      plant: (text) => text.replace('ExecutionEngine.Assert(!isMarketEscrowActive(accountId)', 'ExecutionEngine.Assert(!IsMarketEscrowActive(accountId)'),
+      claim: 'IsMarketEscrowActive',
+    },
+    {
+      rule: 'a source spelling is ratchet debt exactly once, in the spelling bucket, never in the entrypoint bucket',
+      file: 'docs/PROTOCOL_COMPLETENESS_AUDIT.md',
+      plant: (text) => text.replace('### 6. Market Escrow', '`CanExecuteHook(accountId, caller, hook)` is asserted as live.\n\n### 6. Market Escrow'),
+      recorded: 'spelling:CanExecuteHook->canExecuteHook',
+      notRecorded: 'entrypoint:CanExecuteHook',
+    },
+    {
+      rule: 'a call-shaped label in a diagram is a claim and is not also recorded as a justified mention',
+      file: 'docs/DATA_FLOW.md',
+      plant: (text) => text.replace('HasID{Account ID Valid?}', 'InitiateLegacyThing(){Account ID Valid?}'),
+      claim: 'InitiateLegacyThing',
+      notMention: 'InitiateLegacyThing',
+    },
+    {
+      rule: 'both halves of the decision stay live: a C# definition no manifest exports, and the manifest spelling of one that is exported',
+      file: 'docs/PROTOCOL_COMPLETENESS_AUDIT.md',
+      plant: (text) => text.replace('### 6. Market Escrow', '```csharp\nCallVerifierChild(accountId, childVerifier, method, args);\ncanExecuteHook(accountId, callerContract, hookContract);\n```\n\n### 6. Market Escrow'),
+      live: ['CallVerifierChild', 'canExecuteHook'],
+    },
+  ];
+  for (const mutant of mutants) {
+    const target = path.join(repoRoot, mutant.file);
+    const original = fs.readFileSync(target, 'utf8');
+    const planted = mutant.plant(original);
+    assert.notEqual(planted, original, `${mutant.rule}: the mutant did not change ${mutant.file}`);
+    fs.writeFileSync(target, planted);
+    try {
+      if (mutant.recorded) {
+        const found = ratchetDebt();
+        assert.ok(found[mutant.file]?.includes(mutant.recorded),
+          `${mutant.rule}: the planted source spelling was not recorded as ${mutant.recorded}; the scan reported ${JSON.stringify(found[mutant.file])}`);
+        assert.ok(!found[mutant.file]?.includes(mutant.notRecorded),
+          `${mutant.rule}: the planted source spelling was also recorded as ${mutant.notRecorded}`);
+        continue;
+      }
+      const scan = fenceScan();
+      if (mutant.live) {
+        for (const name of mutant.live) {
+          assert.ok(!scan.claims[mutant.file]?.includes(name),
+            `${mutant.rule}: the oracle killed "${name}", which the artifact that owns it spells exactly`);
+        }
+        continue;
+      }
+      assert.ok(scan.claims[mutant.file]?.includes(mutant.claim),
+        `${mutant.rule}: the planted drift survived; the scan reported ${JSON.stringify(scan.claims)}`);
+      if (mutant.notMention) {
+        assert.ok(!scan.mentions[mutant.file]?.includes(mutant.notMention),
+          `${mutant.rule}: the planted call was recorded as a claim and as a mention`);
+      }
+    } finally {
+      fs.writeFileSync(target, original);
+    }
+  }
+  // the mutants leave the tree exactly as they found it
+  for (const mutant of mutants) {
+    const target = path.join(repoRoot, mutant.file);
+    const text = fs.readFileSync(target, 'utf8');
+    for (const name of ['CanExecuteHook(', 'InitiateEscape()', 'IsMarketEscrowActive(', 'InitiateLegacyThing', 'CallVerifierChild(']) {
+      assert.ok(!text.includes(name), `${mutant.file} kept a planted drift: ${name}`);
+    }
   }
 });
 
