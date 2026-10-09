@@ -66,14 +66,12 @@ const NO_NAMES = new Set();
 // the follow-up row that removes the remaining entries.
 const V2_DEBT = {
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
-  'docs/ETHEREUM_AA_COMPARISON.md': ['case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:ValidatePaymasterOp', 'entrypoint:validateUserOp'],
+  'docs/ETHEREUM_AA_COMPARISON.md': ['entrypoint:validateUserOp'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
   'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
   'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
   'docs/SECURITY_AUDIT_RESULTS.md': ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
-  'docs/TRANSACTION_FLOW.md': ['entrypoint:ExecuteUnifiedByAddress'],
-  'docs/USER_GUIDE.md': ['legacy:getAccountsByAdmin', 'legacy:getAccountsByManager', 'sdk:createAccountBatchPayload'],
   'frontend/src/assets/docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
 };
 

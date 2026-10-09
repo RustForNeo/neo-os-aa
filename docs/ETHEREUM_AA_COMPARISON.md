@@ -256,9 +256,9 @@ public class SponsorshipPolicy {
 }
 
 // Core integration
-object result = ExecuteSponsoredUserOp(accountId, op, paymaster, sponsor, reimbursementAmount);
+object result = executeSponsoredUserOp(accountId, op, paymaster, sponsor, reimbursementAmount);
 // 1. Optional relay preflight via Paymaster.validatePaymasterOp()
-// 2. ExecuteUserOp() — full verification + execution
+// 2. executeUserOp() — full verification + execution
 // 3. Paymaster.settleReimbursement() — atomic policy enforcement + GAS to relay
 ```
 
@@ -266,7 +266,7 @@ object result = ExecuteSponsoredUserOp(accountId, op, paymaster, sponsor, reimbu
 - Per-account or global (`accountId = Zero`) sponsorship policies
 - Atomic settlement: policy validation + deposit deduction + relay reimbursement
 - Daily/total budget tracking with automatic 24-hour window reset
-- `ValidatePaymasterOp` available as `[Safe]` read-only for relay preflight
+- `validatePaymasterOp` available as `[Safe]` read-only for relay preflight
 
 ### Neo N3 Paymaster (Off-Chain — Morpheus)
 
@@ -334,13 +334,13 @@ stateDiagram-v2
 
 | Concept | How to Adapt |
 | --- | --- |
-| **Deploying new account** | Use `RegisterAccount()` instead of deploying a proxy. Account address is deterministic. |
+| **Deploying new account** | Use `registerAccount()` instead of deploying a proxy. Account address is deterministic. |
 | **Sending UserOperation** | Call `executeUserOp(accountId, op)` instead of `handleUserOps()`. |
 | **Paymaster integration** | Use `AAPaymaster` contract (on-chain deposit/policy/settlement) or off-chain Morpheus endpoint. Call `executeSponsoredUserOp()` for on-chain, or implement off-chain auth for Morpheus. |
 | **Aggregator pattern** | Use `MultiHook` to combine policy modules. |
 | **Bundler integration** | Implement relay server that calls `simulateMetaInvocation()` then `relayMetaInvocation()`. |
 | **Signature schemes** | Use `Web3AuthVerifier` for EVM sigs, `WebAuthnVerifier` for passkeys. |
-| **Recovery** | Use `InitiateEscape()` / `FinalizeEscape()` for L1 backup. |
+| **Recovery** | Use `initiateEscape()` / `finalizeEscape()` for L1 backup. |
 
 ### Code Pattern: Ethereum AA → Neo AA
 
@@ -353,7 +353,7 @@ entryPoint.handleOps(ops, beneficiary);
 **Neo:**
 ```csharp
 UserOperation[] ops;
-object[] results = ExecuteUserOps(accountId, ops);
+object[] results = executeUserOps(accountId, ops);
 // Or via SDK/relay:
 relayMetaInvocation({ scriptHash: aaContract, operation: "executeUserOps", args: [accountId, ops] });
 ```
