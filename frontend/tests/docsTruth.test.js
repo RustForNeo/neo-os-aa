@@ -68,7 +68,7 @@ const V2_DEBT = {
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
   'docs/ETHEREUM_AA_COMPARISON.md': ['entrypoint:validateUserOp'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
-  'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
+  'docs/MULTISIG_SDK.md': ['entrypoint:callVerifierChild'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
   'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
   'docs/SECURITY_AUDIT_RESULTS.md': ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
@@ -81,7 +81,9 @@ const V2_DEBT = {
 // "getContract" by string, so a document that reads a NEF back that way names no AA entrypoint.
 const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'ContractManagement', 'System', 'CryptoLib', 'Storage', 'Helper', 'ExecutionEngine', 'Neo']);
 // Inline code that looks like an entrypoint but is a parameter, a field or a service name.
-const NON_CALLABLES = new Set(['create_aa_draft', 'claimCommitment', 'callData', 'signMessage', 'getPending']);
+// callHash is a field of the pending-module-call record (contracts/UnifiedSmartWallet.Models.cs:65),
+// not a callable; DS-CU-202 section 4.
+const NON_CALLABLES = new Set(['create_aa_draft', 'claimCommitment', 'callData', 'signMessage', 'getPending', 'callHash']);
 
 const ENTRYPOINT = /^(?:execute|register|preview|initiate|finalize|settle|update|cancel|confirm|propose|compute|get|set|is|has|can|withdraw|revoke|rotate|claim|deposit|call|lock|unlock|create|build|derive|validate|query|prepare|sign|broadcast|discover)[A-Z][A-Za-z0-9]*$/;
 // A line that marks a name as gone. The repository's translation copies state removal in Chinese,
@@ -139,6 +141,13 @@ for (const file of tracked) {
   if (!file.startsWith('sdk/js/src/') && !file.startsWith('shared/')) continue;
   const text = read(file);
   for (const match of text.matchAll(/^\s*(?:async\s+)?(?:static\s+)?([A-Za-z_]\w*)\s*\([^)]*\)\s*\{/gm)) sdkMethods.add(match[1]);
+  // A client factory returns the SDK surface as an object literal: sdk/js/src/multisig.js:24-33
+  // exposes buildBundle, buildChildConfiguration, buildChildTypedData and the rest as `name: value`
+  // keys, so a documented call to one of them is a real SDK method. The scan is limited to sdk/js/src
+  // because the native client's descriptor table (NATIVE_REQUIRED_ABI) has the same key shape.
+  if (file.startsWith('sdk/js/src/')) {
+    for (const match of text.matchAll(/^\s{2,}([A-Za-z_]\w*):\s*(?:async\s*)?(?=\(|tools\.|[A-Za-z_]\w*\()/gm)) sdkMethods.add(match[1]);
+  }
   for (const match of text.matchAll(/^\s*(?:async\s+)?([A-Za-z_]\w*)\s*\([^)]*\)\s*\{([\s\S]*?)\n  \}/gm)) {
     if (/LEGACY_V3_REMOVED/.test(match[2])) legacySdkMethods.add(match[1]);
   }
@@ -413,6 +422,10 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
   const patterns = {
     entrypoint: (line, file) => (REMOVED.test(line) ? [] : callableNames(line)
       .filter(({ name }) => !(NATIVE_PROFILE_DOCS.includes(file) ? nativeAbiNames : NO_NAMES).has(name))
+      // A documented callable the SDK defines is not a dead reference either: the MultiSig guide
+      // names client methods (buildBundle, buildChildTypedData) without the `client.` prefix that
+      // the sdk rule below requires, and sdk/js/src/multisig.js exposes exactly those.
+      .filter(({ name }) => !sdkMethods.has(name))
       .filter(({ name }) => !deployedAbi.has(name) && !definedNames.has(name) && !deployedAbiLower.has(name.toLowerCase()))
       .map(({ name }) => `entrypoint:${name}`)),
     case: (line) => callableNames(line).filter(({ name }) => !deployedAbi.has(name) && deployedAbiLower.has(name.toLowerCase())).map(({ name }) => `case:${name}`),
