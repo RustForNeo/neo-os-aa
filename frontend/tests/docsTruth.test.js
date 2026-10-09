@@ -114,7 +114,7 @@ const V2_DEBT = {
   },
   'frontend/src/assets/docs/custom-verifiers.md': {
     names: ['spelling:Admin->admin'],
-    reason: 'The sentence binds a custom verifier to an account "by an existing Admin of the account": the role is the ABI method the paymaster, the market and the mock target export as admin (contracts/paymaster/Paymaster.cs:91, contracts/market/AAAddressMarket.cs:81, contracts/mocks/MockTransferTarget.cs:34, and the internal HookAuthority.Admin), so the C# spelling is a claim about a name the deployment spells admin and it stays recorded (DS-CU-212 section 4).',
+    reason: 'The sentence binds a custom verifier to an account "by an existing Admin of the account": the role is the ABI method the paymaster, the market and the mock target export as admin (contracts/paymaster/Paymaster.cs:93, contracts/market/AAAddressMarket.cs:83, contracts/mocks/MockTransferTarget.cs:36, and the internal HookAuthority.Admin at contracts/hooks/HookAuthority.cs:63), so the C# spelling is a claim about a name the deployment spells admin and it stays recorded (DS-CU-212 section 4).',
   },
   'frontend/src/assets/docs/SECURITY_AUDIT.md': {
     names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:ClearAccount->clearAccount', 'spelling:ClearSessionKey->clearSessionKey', 'spelling:EnterMarketEscrow->enterMarketEscrow', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:SetupRecovery->setupRecovery', 'spelling:ValidateSignature->validateSignature', 'spelling:Verify->verify', 'spelling:VerifyMetaTx->verifyMetaTx'],
