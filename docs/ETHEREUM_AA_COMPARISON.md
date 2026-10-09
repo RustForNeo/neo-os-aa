@@ -298,11 +298,16 @@ object result = executeSponsoredUserOp(accountId, op, paymaster, sponsor, reimbu
 ```mermaid
 stateDiagram-v2
     [*] --> Configured: BackupOwner set
-    Configured --> EscapeInitiated: InitiateEscape() called
+    Configured --> EscapeInitiated: initiateEscape(accountId) called
     EscapeInitiated --> [*]: Normal op cancels escape
-    EscapeInitiated --> EscapeFinalized: Timelock expires + FinalizeEscape()
+    EscapeInitiated --> EscapeFinalized: Timelock expires + finalizeEscape(accountId, newVerifier)
     EscapeFinalized --> [*]: Verifier reset to BackupOwner
 ```
+
+The two deployed entrypoints take the account id, and `finalizeEscape` also takes the verifier the
+account falls back to (`contracts/build/UnifiedSmartWalletV3.manifest.json`; implemented in
+`contracts/UnifiedSmartWallet.Escape.cs`, where the C# methods are spelled with a leading capital —
+that form names no exported method, which is why it is not code-formatted here).
 
 **Features:**
 - **Timelock:** Configurable 7-90 days

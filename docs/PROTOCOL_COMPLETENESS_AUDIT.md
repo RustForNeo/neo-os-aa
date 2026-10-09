@@ -222,8 +222,12 @@ ExecutionEngine.Assert(!isExecutionActive(accountId), "Reentrant call rejected")
 
 **Security Properties:**
 ```csharp
-ExecutionEngine.Assert(!IsMarketEscrowActive(accountId), "Account locked in market escrow");
+ExecutionEngine.Assert(!isMarketEscrowActive(accountId), "Account locked in market escrow");
 ```
+The call is written as the deployed ABI spells it (`isMarketEscrowActive`, in
+`contracts/build/UnifiedSmartWalletV3.manifest.json`). The C# source defines it with a leading
+capital (IsMarketEscrowActive, contracts/UnifiedSmartWallet.State.cs:143); that form names a method
+the deployment does not export, which is why it is not code-formatted here.
 - Prevents concurrent operations during active listing
 
 **Edge Cases Handled:**
