@@ -74,7 +74,6 @@ const V2_DEBT = {
   'docs/ACCOUNT_RECOVERY_AND_IDENTITY.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CanExecuteHook', 'case:CanExecuteVerifier', 'case:ExecuteUserOp', 'entrypoint:getAccountIdByAddress', 'entrypoint:getVerifierContractByAddress'],
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
   'docs/ETHEREUM_AA_COMPARISON.md': ['case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:ValidatePaymasterOp', 'entrypoint:validateUserOp'],
-  'docs/HOW_IT_WORKS.md': ['case:ValidatePaymasterOp', 'entrypoint:CreateAccountBatch', 'entrypoint:GetAccountsByAdmin', 'entrypoint:GetAccountsByManager', 'entrypoint:executeUnifiedByAddress'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
   'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
@@ -84,15 +83,9 @@ const V2_DEBT = {
   'docs/SECURITY_MODEL.md': ['case:CanConfigureVerifier', 'case:CanExecuteHook', 'entrypoint:IsAnyExecutionActive'],
   'docs/TRANSACTION_FLOW.md': ['entrypoint:ExecuteUnifiedByAddress'],
   'docs/USER_GUIDE.md': ['legacy:getAccountsByAdmin', 'legacy:getAccountsByManager', 'sdk:createAccountBatchPayload'],
-  'docs/WORKFLOWS.md': ['entrypoint:executeUnified', 'entrypoint:executeUnifiedByAddress'],
-  'docs/WORKFLOWS.zh-CN.md': ['entrypoint:executeUnifiedByAddress'],
-  'docs/architecture.zh-CN.md': ['entrypoint:executeUnifiedByAddress'],
   'frontend/src/assets/docs/AA_V3_ARCHITECTURE.en.md': ['case:InitiateEscape'],
   'frontend/src/assets/docs/AA_V3_ARCHITECTURE.zh-CN.md': ['case:InitiateEscape'],
   'frontend/src/assets/docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
-  'frontend/src/assets/docs/guide.md': ['entrypoint:executeUnifiedByAddress'],
-  'frontend/src/assets/docs/workflow.md': ['entrypoint:executeUnifiedByAddress'],
-  'frontend/src/assets/docs/workflow.zh.md': ['entrypoint:executeUnifiedByAddress'],
   'sdk/js/CHANGES.md': ['case:ValidateSignature'],
 };
 
@@ -102,7 +95,10 @@ const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'System', 'CryptoLib
 const NON_CALLABLES = new Set(['create_aa_draft', 'claimCommitment', 'callData', 'signMessage', 'getPending']);
 
 const ENTRYPOINT = /^(?:execute|register|preview|initiate|finalize|settle|update|cancel|confirm|propose|compute|get|set|is|has|can|withdraw|revoke|rotate|claim|deposit|call|lock|unlock|create|build|derive|validate|query|prepare|sign|broadcast|discover)[A-Z][A-Za-z0-9]*$/;
-const REMOVED = /remov|superseded|no longer|not part|does not exist|never existed|absent|retired|deleted|dropped|gone|were never/i;
+// A line that marks a name as gone. The repository's translation copies state removal in Chinese,
+// so the marker vocabulary is not English-only; "旧版" (legacy) deliberately does NOT mark a
+// removal, because "legacy X is compatibility-only" was itself the false claim (DS-CU-163 B2).
+const REMOVED = /remov|superseded|no longer|not part|does not exist|never existed|absent|retired|deleted|dropped|gone|were never|移除|删除|弃用|废弃|不再/i;
 
 const deployedAbi = new Map(); // exact ABI name -> the manifest that carries it
 for (const file of fs.readdirSync(path.join(repoRoot, 'contracts/build'))) {
