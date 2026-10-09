@@ -213,7 +213,7 @@ ExecutionEngine.Assert(!isExecutionActive(accountId), "Reentrant call rejected")
 **Implementation Location:** `contracts/UnifiedSmartWallet.MarketEscrow.cs`
 
 **Features:**
-- **Entry:** `EnterMarketEscrow(accountId, marketContract, listingId)`
+- **Entry:** `enterMarketEscrow(accountId, marketContract, listingId)`
 - **Block:** While escrow is active, normal operations and config changes are blocked
 - **Cancellation:** `cancelMarketEscrow(accountId, listingId)` clears escrow without changing control
 - **Settlement:** `settleMarketEscrow(accountId, listingId, newBackupOwner)` transfers shell, wipes prior state
