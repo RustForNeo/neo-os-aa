@@ -20,6 +20,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { MORPHEUS_PUBLIC_REGISTRY } from '../src/config/generatedMorpheusRegistry.js';
+// The native ABI 2 profile is a separate runtime with its own documents (DS-CU-163 section 2.2
+// excludes it from the current-runtime documents), and NativeSmartAccountClient declares the exact
+// method set it validates a deployment against. A native callable is live when that artefact names
+// it, the same way a deployed manifest makes an N3 callable live (DS-CU-202 section 3).
+import { NATIVE_REQUIRED_ABI } from '../../shared/nativeSmartAccountClient.mjs';
 
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url));
 const repoRoot = path.resolve(frontendRoot, '..');
@@ -46,6 +51,15 @@ const CURRENT_DOCS = [
 // its cited receipts must exist. DS-CU-163 section 4.3 V3.
 const AUDIT_DOCS = ['frontend/src/assets/docs/SECURITY_AUDIT.md'];
 
+// The native ABI 2 profile is a separate runtime with its own documents (DS-CU-163 section 2.2),
+// and NativeSmartAccountClient declares the exact method set it validates a deployment against.
+// Only these documents are read against that artefact; a name that merely coincides with a native
+// method (callVerifierChild is also defined in contracts/UnifiedSmartWallet.VerifierChildren.cs and
+// absent from the deployed manifest) is still judged by the deployed ABI everywhere else.
+const NATIVE_PROFILE_DOCS = ['docs/NATIVE_SDK.md', 'docs/NATIVE_ACCOUNT_WORKSPACE.md'];
+const nativeAbiNames = new Set(Object.keys(NATIVE_REQUIRED_ABI));
+const NO_NAMES = new Set();
+
 // Documents that still describe the removed V2 runtime. The list is a ratchet: it records the
 // exact names each document may still mention and fails when one grows (new drift) or shrinks
 // (the document was corrected and the entry must be dropped). DS-CU-163 section 10 recommends
@@ -63,8 +77,6 @@ const V2_DEBT = {
   'docs/HOW_IT_WORKS.md': ['case:ValidatePaymasterOp', 'entrypoint:CreateAccountBatch', 'entrypoint:GetAccountsByAdmin', 'entrypoint:GetAccountsByManager', 'entrypoint:executeUnifiedByAddress'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
   'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
-  'docs/NATIVE_ACCOUNT_WORKSPACE.md': ['entrypoint:executeRecovery', 'entrypoint:getNetworks'],
-  'docs/NEO-PLATFORM-PACKAGES.md': ['entrypoint:getAuthorityEpoch'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
   'docs/QUICK_REFERENCE.zh-CN.md': ['case:GetDailySpent', 'case:GetPolicy', 'case:GetSponsorDeposit', 'case:GetTotalSpent', 'case:RevokePolicy', 'case:SetPolicy', 'case:SettleReimbursement', 'case:ValidatePaymasterOp', 'case:WithdrawDeposit'],
   'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
@@ -120,8 +132,17 @@ for (const file of tracked) {
   // Test drivers are not the product surface, and docs are prose about it.
   if (file.startsWith('docs/') || file.startsWith('frontend/tests/') || file.startsWith('tests/') || file.startsWith('sdk/js/tests/')) continue;
   const text = read(file);
-  for (const match of text.matchAll(/([A-Za-z_]\w*)\s*\(/g)) definedNames.add(match[1]);
+  // A call is a call whether or not it is optional-chained: frontend/src/features/native/
+  // nativeWorkspace.js calls `provider.getNetworks?.()`.
+  for (const match of text.matchAll(/([A-Za-z_]\w*)\s*\??\.?\s*\(/g)) definedNames.add(match[1]);
   for (const match of text.matchAll(/DisplayName\("([^"]+)"\)/g)) definedNames.add(match[1]);
+  // A contract may only call what its permissions name, and the pinned native authority calls the
+  // service by string (contracts/native/NativeAuthority.cs). Both spellings are live names, and the
+  // scanner above cannot see them because the method is a string literal, not a call.
+  for (const line of text.split('\n')) {
+    if (!/ContractPermission|Contract\.Call/.test(line)) continue;
+    for (const match of line.matchAll(/"([A-Za-z_]\w*)"/g)) definedNames.add(match[1]);
+  }
 }
 
 // The SDK surface: class methods plus the methods that unconditionally report a V3 removal. The
@@ -405,7 +426,8 @@ test('CU-163: no document closes VULN-001 for the public build while the deploye
 
 test('CU-163: the V2-era documents do not grow new dead references (ratchet)', () => {
   const patterns = {
-    entrypoint: (line) => (REMOVED.test(line) ? [] : callableNames(line)
+    entrypoint: (line, file) => (REMOVED.test(line) ? [] : callableNames(line)
+      .filter(({ name }) => !(NATIVE_PROFILE_DOCS.includes(file) ? nativeAbiNames : NO_NAMES).has(name))
       .filter(({ name }) => !deployedAbi.has(name) && !definedNames.has(name) && !deployedAbiLower.has(name.toLowerCase()))
       .map(({ name }) => `entrypoint:${name}`)),
     case: (line) => callableNames(line).filter(({ name }) => !deployedAbi.has(name) && deployedAbiLower.has(name.toLowerCase())).map(({ name }) => `case:${name}`),
@@ -418,7 +440,7 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
   for (const file of files) {
     const names = new Set();
     for (const line of read(file).split('\n')) {
-      for (const build of Object.values(patterns)) for (const name of build(line)) names.add(name);
+      for (const build of Object.values(patterns)) for (const name of build(line, file)) names.add(name);
     }
     if (names.size) found[file] = [...names].sort();
   }
