@@ -24,7 +24,7 @@ The relay preserves explicit unsponsored opt-in, off-chain sponsorship approval 
 
 **Proxy transfers through `executeSponsoredUserOp` and `executeSponsoredUserOps` remain disabled.** The contract's Verification entrypoint refuses these envelopes, and the relay explicitly refuses proxy transfers using either entrypoint before calculating fees or signing a transaction for broadcast.
 
-A transaction witness survives after `ExecuteUserOp` clears its hook and verification context. Current sponsorship accepts a paymaster based on its self-reported `authorizedCore`; that is not an independent trust decision. If settlement invokes a contract covered by the proxy witness scope, that authority could be reused outside the signed operation's hook accounting. Supporting sponsored proxy transfers therefore needs a reviewed design for paymaster authority and witness lifetime. Passing an ordinary paymaster happy-path test is insufficient.
+A transaction witness survives after `executeUserOp` clears its hook and verification context. Current sponsorship accepts a paymaster based on its self-reported `authorizedCore`; that is not an independent trust decision. If settlement invokes a contract covered by the proxy witness scope, that authority could be reused outside the signed operation's hook accounting. Supporting sponsored proxy transfers therefore needs a reviewed design for paymaster authority and witness lifetime. Passing an ordinary paymaster happy-path test is insufficient.
 
 Direct proxy transfers can still use an off-chain relay sponsorship policy: the transaction itself remains a single `executeUserOp(s)` call, and the fee-paying relay is not reimbursed by an on-chain settlement callback.
 

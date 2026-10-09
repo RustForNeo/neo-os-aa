@@ -636,8 +636,9 @@ The cleanup model proves fail-closed state transitions, not recovery availabilit
 `finalizeEscape` still depends on successful cleanup by the old verifier and hook.
 The 2026-10-08 source validates the replacement verifier before these callbacks, but
 does not introduce emergency detach or guarantee progress past a malicious old module.
-`CallVerifierChild` and its explicit `getChildVerifierConfig` capability are recorded in
-the source snapshot and tested in NeoVM, but are outside the current abstract models.
+`CallVerifierChild` and its explicit `getChildVerifierConfig` capability are absent from the
+deployed core manifest (`contracts/build/UnifiedSmartWalletV3.manifest.json`) although they are
+recorded in the source snapshot and tested in NeoVM; both are outside the current abstract models.
 Those models do not prove the child configuration ABI, core/topology binding,
 pending-call serialization or timelock enforcement for this new route. The project file
 and profile build recipe are also pinned so changing source selection invalidates the
@@ -667,7 +668,7 @@ nonzero valid target, method length 1--128 UTF-8 bytes, argument count at most
 1024 bytes, non-empty batch of at most 32 operations, and nonce/deadline in
 the non-negative signed-256-bit domain (`0 <= value < 2^255`). Therefore an
 executable nonce has 191 channel bits, not 192. The deployed foundation's
-`GetNonce` currently admits a wider, unsigned-192-bit query range; that does
+`getNonce` read currently admits a wider, unsigned-192-bit query range; that does
 not make those upper-half channels executable and is not native-profile
 conformance. The new native codec rejects channels at or above `2^191`.
 

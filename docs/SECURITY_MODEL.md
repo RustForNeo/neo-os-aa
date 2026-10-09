@@ -277,14 +277,14 @@ flowchart TD
 
 ### Layer 2: Core Contract
 - **Nonce + Deadline:** Replay protection
-- **Execution Lock:** Reentrancy prevention (`IsAnyExecutionActive()`)
+- **Execution Lock:** Reentrancy prevention, read as `isExecutionActive(accountId)` on the deployed core
 - **Verify Context:** Limits `CheckWitness(accountId)` to execution context
 - **Authority Separation:** Verifier (who) vs Hook (what) vs Core (how)
 
 ### Layer 3: Plugin System
 - **Verifier Isolation:** Stateless, no direct state access
 - **Hook Gating:** Pre/post execution policies
-- **Authority Validation:** `CanConfigureVerifier` / `CanExecuteHook` checks
+- **Authority Validation:** `canConfigureVerifier` / `canExecuteHook` checks
 - **Module Lifecycle:** Timelocked updates with events
 
 The core passes hook callbacks a single canonical operation tuple in both phases:

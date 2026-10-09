@@ -65,32 +65,23 @@ const NO_NAMES = new Set();
 // (the document was corrected and the entry must be dropped). DS-CU-163 section 10 recommends
 // the follow-up row that removes the remaining entries.
 const V2_DEBT = {
-  'CHANGELOG.md': ['case:ExecuteSponsoredUserOp', 'case:ExecuteSponsoredUserOps'],
-  'docs/AA-FORMAL-VERIFICATION.md': ['case:GetNonce', 'entrypoint:getChildVerifierConfig'],
-  'docs/AA-PROXY-SIGNER-SCOPE-20260912.md': ['entrypoint:getContract'],
-  'docs/AA-PROXY-TRANSFERS.md': ['case:ExecuteUserOp'],
-  'docs/AA_V3_ARCHITECTURE.en.md': ['case:InitiateEscape'],
-  'docs/AA_V3_ARCHITECTURE.zh-CN.md': ['case:InitiateEscape'],
-  'docs/ACCOUNT_RECOVERY_AND_IDENTITY.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CanExecuteHook', 'case:CanExecuteVerifier', 'case:ExecuteUserOp', 'entrypoint:getAccountIdByAddress', 'entrypoint:getVerifierContractByAddress'],
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
   'docs/ETHEREUM_AA_COMPARISON.md': ['case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:ValidatePaymasterOp', 'entrypoint:validateUserOp'],
   'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
   'docs/MULTISIG_SDK.md': ['entrypoint:buildBundle', 'entrypoint:buildChildConfiguration', 'entrypoint:buildChildTypedData', 'entrypoint:callHash', 'entrypoint:callVerifierChild'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
-  'docs/QUICK_REFERENCE.zh-CN.md': ['case:GetDailySpent', 'case:GetPolicy', 'case:GetSponsorDeposit', 'case:GetTotalSpent', 'case:RevokePolicy', 'case:SetPolicy', 'case:SettleReimbursement', 'case:ValidatePaymasterOp', 'case:WithdrawDeposit'],
   'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
   'docs/SECURITY_AUDIT_RESULTS.md': ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
-  'docs/SECURITY_MODEL.md': ['case:CanConfigureVerifier', 'case:CanExecuteHook', 'entrypoint:IsAnyExecutionActive'],
   'docs/TRANSACTION_FLOW.md': ['entrypoint:ExecuteUnifiedByAddress'],
   'docs/USER_GUIDE.md': ['legacy:getAccountsByAdmin', 'legacy:getAccountsByManager', 'sdk:createAccountBatchPayload'],
-  'frontend/src/assets/docs/AA_V3_ARCHITECTURE.en.md': ['case:InitiateEscape'],
-  'frontend/src/assets/docs/AA_V3_ARCHITECTURE.zh-CN.md': ['case:InitiateEscape'],
   'frontend/src/assets/docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
-  'sdk/js/CHANGES.md': ['case:ValidateSignature'],
 };
 
 // Framework and service calls that share a name with a contract method but are not one.
-const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'System', 'CryptoLib', 'Storage', 'Helper', 'ExecutionEngine', 'Neo']);
+// ContractManagement is the Neo native contract: contracts/UnifiedSmartWallet.Accounts.cs:404 calls
+// ContractManagement.GetContract and tests/AbstractAccount.Contracts.Tests/*.cs invoke the native
+// "getContract" by string, so a document that reads a NEF back that way names no AA entrypoint.
+const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'ContractManagement', 'System', 'CryptoLib', 'Storage', 'Helper', 'ExecutionEngine', 'Neo']);
 // Inline code that looks like an entrypoint but is a parameter, a field or a service name.
 const NON_CALLABLES = new Set(['create_aa_draft', 'claimCommitment', 'callData', 'signMessage', 'getPending']);
 

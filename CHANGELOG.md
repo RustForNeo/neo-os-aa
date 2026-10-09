@@ -9,7 +9,7 @@ and this project adheres to Semantic Versioning.
 
 ### Added
 - Added on-chain `AAPaymaster` contract for trustless sponsored/gasless transactions. Sponsors deposit GAS, create per-account or global sponsorship policies with per-op limits, daily budgets, total budgets, target/method restrictions, and expiry timestamps. Relays are reimbursed automatically after successful `UserOp` execution via atomic settlement.
-- Added `ExecuteSponsoredUserOp` and `ExecuteSponsoredUserOps` to the AA core for paymaster-integrated execution with pre-validation and post-execution settlement.
+- Added `executeSponsoredUserOp` and `executeSponsoredUserOps` to the AA core for paymaster-integrated execution with pre-validation and post-execution settlement.
 - Added `SponsoredUserOpExecuted` event to the AA core for indexing sponsored operations.
 - Added SDK methods: `createSponsoredUserOpPayload`, `createSponsoredBatchPayload`, `querySponsorBalance`, and `validatePaymasterOp` for relay and dApp integration with the on-chain Paymaster.
 - Added `PaymasterAuthority` with 7-day timelocked admin rotation and authorized-core validation for settlement security.

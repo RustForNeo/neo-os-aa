@@ -25,19 +25,19 @@ both. It reads only the existing core ABI:
   the UI converts them to display-order hex before using Hash160 arguments.
 
 The RPC URL and core hash must be configured, and malformed inputs, mismatched
-identity, FAULT responses, and malformed stack values fail closed. There is no
-`getAccountIdByAddress` or `getVerifierContractByAddress` ABI in this core. Changing
+identity, FAULT responses, and malformed stack values fail closed. The `getAccountIdByAddress` and `getVerifierContractByAddress` names are absent from every
+deployed manifest: this core exposes no such ABI. Changing
 the account, core, or account-ID prefill invalidates pending UI reads so a late
 response cannot restore an earlier account's recovery context.
 
 ## A possible authority-epoch recovery design (proposal only)
 
 The current implementation already provides a useful boundary for assets at the
-core-derived proxy: `ExecuteUserOp` selects the verifier and hook from core state,
-and `Verify` accepts Application-phase witness requests only in an active target
-context. `CanConfigureVerifier` / `CanConfigureHook` require a temporary context;
-`CanExecuteVerifier` / `CanExecuteHook` require the active root and immediate
-caller. These are defined in `UnifiedSmartWallet.Execution.cs` and
+core-derived proxy: `executeUserOp` selects the verifier and hook from core state,
+and `verify` accepts Application-phase witness requests only in an active target
+context. `canConfigureVerifier` / `canConfigureHook` require a temporary context;
+`canExecuteVerifier` / `canExecuteHook` require the active root and immediate
+caller. The checks are implemented in `UnifiedSmartWallet.Execution.cs` and
 `UnifiedSmartWallet.VerifyContext.cs`; the corresponding module-side checks are
 in `VerifierAuthority.cs` and `HookAuthority.cs`.
 
