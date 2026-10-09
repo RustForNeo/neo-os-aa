@@ -2,15 +2,18 @@
 
 Each ordinary verifier requires the pinned AA core to call it with an exact
 per-account configuration context. A MultiSig root forwarding to a child cannot
-satisfy that check. The core provides a bounded child initialization path:
-
-`callVerifierChild(accountId, childVerifier, method, args)`
+satisfy that check. The core source provides a bounded child initialization path.
+`callVerifierChild(accountId, childVerifier, method, args)` and the `getChildVerifierConfig(accountId)` read described below are absent from the pinned
+deployed artifact (`contracts/build/UnifiedSmartWalletV3.manifest.json` exports
+neither), so a deployment must be rebuilt before an integrator can call the path
+this document describes (DS-CU-202 finding F1).
 
 - The caller must satisfy the account's backup-owner witness. The account cannot
   be in market escrow or active execution.
-- The current root must expose safe `getChildVerifierConfig(accountId)` returning
-  its ordered children and threshold. MultiSig implements this from its existing
-  `getConfig` state; `getConfig` remains unchanged.
+- The current root must expose a safe `getChildVerifierConfig(accountId)` read that is absent from
+  the pinned deployed artifact while returning the root's ordered children and threshold; this is a
+  source requirement, not a property of the deployment in `contracts/build`. MultiSig implements it
+  from its existing `getConfig` state; `getConfig` remains unchanged.
 - The target must be a current direct child, with complete V3 lifecycle ABI and
   `authorizedCore()` equal to this core. The root must be bound to this core too.
 - Only `setPublicKey(Hash160, ByteArray)` and `setConfig(Hash160, Array, Integer)`
@@ -26,7 +29,8 @@ satisfy that check. The core provides a bounded child initialization path:
 For example, register a MultiSig root with empty verifier params, configure its
 root `setConfig` through the existing `callVerifier` timelock, then initialize a
 Web3Auth child's `setPublicKey` and a NeoNative child's `setConfig` through separate
-`callVerifierChild` proposals. Each proposal uses the full argument list including
+`callVerifierChild` proposals — absent from the pinned deployed artifact, so this
+sequence needs a rebuilt deployment. Each proposal uses the full argument list including
 the account ID. Existing pending getters report the root module, commitment hash,
 and available time.
 

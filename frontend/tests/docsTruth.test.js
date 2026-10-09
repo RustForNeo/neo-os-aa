@@ -67,8 +67,6 @@ const NO_NAMES = new Set();
 const V2_DEBT = {
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': ['entrypoint:getAuthTokenInfo'],
   'docs/ETHEREUM_AA_COMPARISON.md': ['entrypoint:validateUserOp'],
-  'docs/MULTISIG_CHILD_CONFIGURATION.md': ['entrypoint:callVerifierChild', 'entrypoint:getChildVerifierConfig'],
-  'docs/MULTISIG_SDK.md': ['entrypoint:callVerifierChild'],
   'docs/PROTOCOL_COMPLETENESS_AUDIT.md': ['case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:CancelHookUpdate', 'case:CancelMarketEscrow', 'case:CancelVerifierUpdate', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:IsMarketEscrowActive', 'case:RegisterAccount', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateVerifier', 'entrypoint:validatePaymasterUserOp'],
   'docs/SECURITY_AUDIT.md': ['case:CanExecuteHook', 'case:SettleMarketEscrow', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked'],
   'docs/SECURITY_AUDIT_RESULTS.md': ['case:CallHook', 'case:CallVerifier', 'case:CanConfigureHook', 'case:CanConfigureVerifier', 'case:ConfirmHookUpdate', 'case:ConfirmVerifierUpdate', 'case:CreateListing', 'case:ExecuteUserOp', 'case:FinalizeEscape', 'case:InitiateEscape', 'case:RegisterAccount', 'case:RotateAdmin', 'case:SetDailyLimit', 'case:SetHooks', 'case:SetSessionKey', 'case:SettleListing', 'case:SettleMarketEscrow', 'case:UpdateHook', 'case:UpdateListingPrice', 'case:UpdateVerifier', 'case:ValidateSignature', 'entrypoint:IsAnyExecutionActive'],
