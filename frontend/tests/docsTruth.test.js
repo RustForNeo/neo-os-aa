@@ -356,20 +356,28 @@ function isCallableName(name) {
 }
 
 // The names a single code span contributes. A span is a CALL when it ends in `)`: its head (up to
-// the first `(`) is a dotted identifier and its arguments are not names. A span is a name LIST when
-// it has no parentheses at all: it splits on the separators the base used, which is how
-// `MultiSigVerifier.ClearAccount`, `VerifyAdmin` and `createListing, updateListingPrice` are read
-// out of prose. Anything else contributes nothing - `Transfer amount exceeds subscription` (a quoted
-// fault message in docs/PLUGIN_MATRIX.md) and a span that is only `Transfer(` are both neither.
-// Without this rule the split on whitespace reads the first word of English prose as a contract
-// name, and a call whose parentheses are split across two spans loses its argument list.
+// the first `(`) is a dotted identifier and its arguments are not names. A span is a single NAME
+// when it has no whitespace and no parentheses - `MultiSigVerifier.ClearAccount`, `VerifyAdmin`. A
+// span is a name LIST only when its words are separated by a comma, semicolon or slash, which is how
+// `createListing, updateListingPrice` and `VerifyAdmin, ClearAccount` are written. Anything else is
+// PROSE and contributes nothing: `Transfer amount exceeds subscription` (the quoted fault message at
+// docs/PLUGIN_MATRIX.md:124) names no callable even though its first word is a member of the class,
+// and a span that is only `Transfer(` is a fragment, not a name.
+//
+// The base rule split every span on whitespace, which is why it read the first word of a sentence as
+// a name whenever the shape vocabulary happened to match it, and why a call whose parentheses were
+// split across two spans lost its argument list. DS-CU-212 section 4 records both.
 function spanSegments(span) {
   if (span.endsWith(')')) {
     const head = span.slice(0, Math.max(span.indexOf('('), 0)).trim();
-    return head ? [head] : [];
+    return /^[A-Za-z_]\w*(\.\w+)*$/.test(head) ? [head] : [];
   }
   if (span.includes('(')) return [];
-  return span.split(/[\s,;/]+/).filter(Boolean);
+  if (!/[,;/]/.test(span)) {
+    return /^[A-Za-z_]\w*(\.\w+)*$/.test(span) ? [span] : [];
+  }
+  const segments = span.split(/[,;/]+/).map((part) => part.trim());
+  return segments.every((part) => /^[A-Za-z_]\w*(\.\w+)*$/.test(part)) ? segments : [];
 }
 
 function callableNames(line) {
@@ -1441,6 +1449,7 @@ test('CU-211: the liveness oracle is case-aware in both directions', () => {
   // have to open a manifest to know what a `spelling:` entry should have been.
   const found = ratchetDebt();
   const buckets = { entrypoint: new Set(), spelling: new Set(), sdk: new Set(), legacy: new Set() };
+  const writtenSpellings = new Set();
   for (const entries of Object.values(found)) {
     for (const entry of entries) {
       const bucket = entry.slice(0, entry.indexOf(':'));
@@ -1448,12 +1457,212 @@ test('CU-211: the liveness oracle is case-aware in both directions', () => {
       buckets[bucket].add(body);
       if (bucket !== 'spelling') continue;
       const [written, deployed] = body.split('->');
+      writtenSpellings.add(written);
       assert.equal(deployedSpelling(written), deployed, `${entry} does not name the deployed spelling`);
       assert.ok(!deployedAbi.has(written), `${entry} writes the deployed spelling and must not be recorded as debt`);
     }
   }
-  assert.deepEqual([...buckets.entrypoint].filter((name) => buckets.spelling.has(name)), [],
+  assert.deepEqual([...buckets.entrypoint].filter((name) => writtenSpellings.has(name)), [],
     'the same name is recorded in both the entrypoint and the spelling bucket');
+});
+
+// The vocabulary rule of DS-CU-212 (DEC-DS-6): both oracles read the source spelling of an exported
+// member, the set that makes them do it is DERIVED from the manifests and the sources rather than
+// listed, and the recorded ledger is the measurement that widening produced. A reader can check every
+// number here against contracts/build/*.manifest.json and contracts/**/*.cs.
+test('CU-212: the entrypoint vocabulary is derived from the build and both oracles read the class', () => {
+  // 1. The derivation. 198 C# definitions at this base are exported under a different spelling than
+  //    the source writes, which is the class CU-211 could not read; the count is what makes this a
+  //    derivation over the build rather than a list of names a document happened to use.
+  assert.equal(divergentSpellings.size, 198,
+    'the divergent class changed size: a contract member was added, renamed or removed, and the ledger below must be re-measured');
+  for (const name of divergentSpellings) {
+    assert.equal(deployedSpellingOfSource(name), (() => {
+      const lower = name.startsWith('_') ? `_${name.slice(1, 2).toLowerCase()}${name.slice(2)}` : `${name.slice(0, 1).toLowerCase()}${name.slice(1)}`;
+      return lower;
+    })(), `${name} is not spelled by the rule the compiler applies`);
+    assert.ok(deployedAbi.has(deployedSpellingOfSource(name)),
+      `${name} is in the divergent class but no manifest exports its lower-cased form`);
+    assert.ok(!deployedAbi.has(name),
+      `${name} is exported exactly, so it is not a divergent spelling`);
+  }
+  // The one definition the compiler exports under the source spelling is not divergent and is live
+  // through `deployedAbi`, which is why the class keys on the export rather than on letter case.
+  assert.ok(exportedInSourceSpelling.has('_deploy'),
+    'the _deploy definition is no longer exported under its source spelling; the exported-in-source control is stale');
+  assert.ok(!divergentSpellings.has('_deploy'), '_deploy is not a divergent spelling');
+  // The other direction of DEC-DS-5 rule 2: a C# definition no manifest exports stays live as source
+  // and must not be dragged into the class.
+  assert.ok(sourceDefinitions.has('CallVerifierChild'),
+    'the source-definition oracle lost CallVerifierChild, the C# definition CU-202 finding F1 records as absent from the pinned build');
+  assert.equal(deployedSpelling('CallVerifierChild'), undefined,
+    'CallVerifierChild is exported by a manifest now, so the live-as-source control is stale');
+  assert.ok(!divergentSpellings.has('CallVerifierChild'),
+    'a source-only definition was pulled into the divergent class');
+  assert.equal(isLiveName('CallVerifierChild', 'docs/SECURITY_AUDIT.md'), true,
+    'a C# definition that no manifest exports is treated as dead; the oracle is rejecting names by shape, not by artifact');
+
+  // 2. Both oracles read the class. The inline oracle is asked through `callableNames`, the fence
+  //    oracle through `fenceClaims`, and the manifest spelling of the same member stays live.
+  assert.equal(isCallableName('OnNEP17Payment'), true,
+    'the inline oracle cannot read the source spelling of an exported member');
+  // The correction CU-211's F8 count carried: fourteen source-spelled exported members appear in the
+  // scanned documents, not thirteen, and every one of them is read now. The assertion is written
+  // against the shape rule so it keeps meaning if the class moves.
+  const blind = ['ClearAccount', 'VerifyExecution', 'VerifyAdmin', 'PreExecute', 'PostExecute', 'Transfer',
+    'SetupRecovery', 'Verify', 'VerifyMetaTx', 'ClearSessionKey', 'EnterMarketEscrow', 'OnNEP17Payment',
+    'RefundPendingPayment', 'Admin'];
+  for (const name of blind) {
+    assert.ok(!shapedLikeEntrypoint(name), `${name} is read by the shape rule now, so it is not a blind name`);
+    assert.ok(isCallableName(name), `${name} is still invisible to the vocabulary`);
+    assert.ok(divergentSpellings.has(name), `${name} is no longer derived as a divergent spelling`);
+  }
+  assert.ok(callableNames('the callback `OnNEP17Payment(accountId, amount, data)` runs').some(({ name }) => name === 'OnNEP17Payment'),
+    'the inline oracle does not collect the source spelling of an exported member');
+  assert.ok(fenceClaims('onNEP17Payment(accountId, amount, data)').length === 0,
+    'a deployed spelling in a fence is claimed as drift');
+  assert.ok(fenceClaims('OnNEP17Payment(accountId, amount, data)').includes('OnNEP17Payment'),
+    'the fence oracle cannot read the source spelling of an exported member');
+  assert.equal(isLiveName('onNEP17Payment', 'docs/SECURITY_AUDIT.md'), true,
+    'the deployed spelling of the member is not live');
+  assert.equal(isLiveName('OnNEP17Payment', 'docs/SECURITY_AUDIT.md'), false,
+    'the source spelling of an exported member is live again, so the class is invisible');
+
+  // 3. The vocabulary is a union with the shape rule and not a replacement: names only the shape rule
+  //    reads are still read, and prose is not a name.
+  assert.ok(shapedLikeEntrypoint('IsAnyExecutionActive'), 'the shape vocabulary lost a name it used to read');
+  assert.equal(isCallableName('IsAnyExecutionActive'), true, 'a shape-read name is no longer a callable');
+  assert.equal(isCallableName('exceeds'), false, 'an ordinary word is read as a callable');
+  // Prose that STARTS with a name the class carries is read as that name - `Transfer` really is the
+  // source spelling of an exported member, and pretending otherwise is the blindness this row fixes.
+  // What keeps it out of the ledger is the document, not a rule that lies about the vocabulary: the
+  // occurrence in docs/PLUGIN_MATRIX.md is written as plain text, and the entrypoint bucket only
+  // charges a token whose spelling no ABI member carries when the shape rule reads it.
+  assert.deepEqual(callableNames('the fault says `Transfer amount exceeds subscription`'), [],
+    'prose inside a code span is read as a contract name, so an English sentence that begins with a member of the class is charged as debt');
+  assert.deepEqual(callableNames('the name `Transfer` alone').map(({ name }) => name),
+    ['Transfer'], 'a span that names the class on its own is not read');
+  assert.deepEqual(ratchetDebt()['docs/PLUGIN_MATRIX.md'], undefined,
+    'a current-facing document is in the ratchet ledger');
+  assert.deepEqual(callableNames('list `createListing, updateListingPrice`').map(({ name }) => name),
+    ['createListing', 'updateListingPrice'], 'a comma-separated name list is no longer read');
+  assert.deepEqual(callableNames('call `EnterMarketEscrow(accountId, marketContract, listingId)`').map(({ name }) => name),
+    ['EnterMarketEscrow'], 'a call to the source spelling is no longer read, or its argument names are read as names');
+  // The other direction: the deployed spelling is exact ABI, and the shape rule deliberately does not
+  // read it, so the vocabulary is not "any case variant" either.
+  assert.deepEqual(callableNames('call `enterMarketEscrow(accountId, marketContract, listingId)`').map(({ name }) => name),
+    [], 'the vocabulary reads a name the shape rule never read and no source definition carries');
+
+  // 4. The ledger this vocabulary produces: 48 `spelling:` entries and 7 `entrypoint:` entries in 7
+  //    files. The rise from CU-202's 34 is the measurement the row was dispatched to report.
+  const found = ratchetDebt();
+  const entries = Object.values(found).flat();
+  assert.equal(entries.length, 55, `the recorded ledger is not the widened one: ${entries.length} entries`);
+  assert.equal(entries.filter((entry) => entry.startsWith('spelling:')).length, 48, 'the spelling bucket changed size');
+  assert.equal(entries.filter((entry) => entry.startsWith('entrypoint:')).length, 7, 'the entrypoint bucket changed size');
+  assert.equal(Object.keys(found).length, 7, 'the ledger no longer covers 7 files');
+  // Every source-spelled occurrence in a scanned document is now read: the class has no blind spot.
+  const missed = [];
+  for (const file of Object.keys(found)) {
+    for (const line of read(file).split('\n')) {
+      for (const { name } of callableNames(line)) {
+        if (deployedSpelling(name) !== undefined && !deployedAbi.has(name)
+          && !found[file].includes(`spelling:${name}->${deployedSpelling(name)}`)) {
+          missed.push(`${file}: ${name}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(missed, [], `a source spelling in a scanned document is still not recorded:\n${missed.join('\n')}`);
+});
+
+// Every rule CU-212 adds must be able to fail, and every mutant must be paired with a kill control:
+// the rule is removed from THIS process's oracle, the same document mutation is re-applied, and a
+// control that does not change the answer proves the rule was decoration. The mutants are asserted on
+// the reported set, never on an exit code, so an incidental failure elsewhere cannot count as a kill.
+// DS-CU-212 section 4.
+test('CU-212: each vocabulary rule is killed by its planted drift', () => {
+  const auditDoc = 'docs/PROTOCOL_COMPLETENESS_AUDIT.md';
+  // The ledger a mutant writes, compared as the recorded list plus exactly the planted name: an
+  // incidental entry elsewhere cannot pass for a kill, and a dropped recorded entry cannot hide.
+  const ledgerWith = (planted) => {
+    const found = ratchetDebt();
+    const reported = found[auditDoc] ?? [];
+    const base = [...(V2_DEBT[auditDoc]?.names ?? [])];
+    const expected = base.includes(planted) ? [...base] : [...base, planted].sort();
+    return { reported, expected };
+  };
+  const mutants = [
+    {
+      rule: 'the inline oracle reads the source spelling of an exported member and records it as spelling debt',
+      plant: (text) => text.replace('### 6. Market Escrow', '`OnNEP17Payment(accountId, amount, data)` is the token callback.\n\n### 6. Market Escrow'),
+      check: () => {
+        const { reported, expected } = ledgerWith('spelling:OnNEP17Payment->onNEP17Payment');
+        assert.ok(reported.includes('spelling:OnNEP17Payment->onNEP17Payment'),
+          `the planted source spelling was not recorded; the scan reported ${JSON.stringify(reported)}`);
+        assert.deepEqual(reported, expected, 'the planted spelling changed more of the ledger than itself');
+        assert.ok(!reported.includes('entrypoint:OnNEP17Payment'),
+          'the planted source spelling was also recorded as a dead entrypoint');
+      },
+      control: () => !(ratchetDebt()[auditDoc] ?? []).includes('spelling:OnNEP17Payment->onNEP17Payment')
+        || assert.fail('the planted drift survived without the divergent class; the control did not kill it'),
+    },
+    {
+      rule: 'the fence oracle reads the same spelling in a fenced block, and the class stays out of the mention ledger',
+      plant: (text) => text.replace('### 6. Market Escrow', '```csharp\nOnNEP17Payment(accountId, amount, data);\n```\n\n### 6. Market Escrow'),
+      check: () => {
+        const scan = fenceScan();
+        assert.ok(scan.claims[auditDoc]?.includes('OnNEP17Payment'),
+          `the planted fenced call survived; the scan reported ${JSON.stringify(scan.claims)}`);
+        assert.ok(!scan.mentions[auditDoc]?.includes('OnNEP17Payment'),
+          'the planted fenced call was recorded as a claim and as a mention');
+      },
+      control: () => !(fenceScan().claims[auditDoc] ?? []).includes('OnNEP17Payment')
+        || assert.fail('the planted fenced call survived without the divergent class; the control did not kill it'),
+    },
+    {
+      rule: 'CONTROL: a name live in both spellings stays live - the exact manifest spelling and a C# definition no manifest exports',
+      plant: (text) => text.replace('### 6. Market Escrow', '```csharp\nclearAccount(accountId);\nCallVerifierChild(accountId, childVerifier, method, args);\n```\n\n### 6. Market Escrow'),
+      check: () => {
+        assert.deepEqual(fenceScan().claims[auditDoc] ?? [], [],
+          'the oracle killed a name the artifact that owns it spells exactly');
+      },
+      // This control must survive the rule's removal too: if it died without the class the mutant
+      // itself would be broken rather than the rule, so the control proves the mutant is well-formed.
+      control: () => assert.deepEqual(fenceScan().claims[auditDoc] ?? [], [],
+        'the control mutant reports a claim even without the widened vocabulary, so it cannot kill anything'),
+    },
+  ];
+  const target = path.join(repoRoot, auditDoc);
+  const original = fs.readFileSync(target, 'utf8');
+  for (const mutant of mutants) {
+    const planted = mutant.plant(original);
+    assert.notEqual(planted, original, `${mutant.rule}: the mutant did not change ${auditDoc}`);
+    fs.writeFileSync(target, planted);
+    try {
+      mutant.check();
+    } finally {
+      fs.writeFileSync(target, original);
+    }
+  }
+  // the mutants leave the tree exactly as they found it
+  const drifted = fs.readFileSync(target, 'utf8');
+  for (const name of ['OnNEP17Payment(', 'clearAccount, childVerifier']) {
+    assert.ok(!drifted.includes(name), `${auditDoc} kept a planted drift: ${name}`);
+  }
+  // THE KILL CONTROLS: with the divergent class emptied, the same mutation must stop being reported.
+  for (const mutant of mutants) {
+    const saved = [...divergentSpellings];
+    divergentSpellings.clear();
+    try {
+      fs.writeFileSync(target, mutant.plant(original));
+      mutant.control();
+    } finally {
+      divergentSpellings.clear();
+      for (const name of saved) divergentSpellings.add(name);
+      fs.writeFileSync(target, original);
+    }
+  }
 });
 
 // Every rule above must be able to fail, so each one gets a document mutant, run against the real
