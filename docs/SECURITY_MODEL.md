@@ -548,14 +548,18 @@ a relay should keep the customary system-fee margin on sponsored submissions.
 ```mermaid
 stateDiagram-v2
     [*] --> Normal: Account configured
-    Normal --> EscapeInitiated: BackupOwner calls InitiateEscape()
+    Normal --> EscapeInitiated: BackupOwner calls initiateEscape(accountId)
     EscapeInitiated --> ActiveEscape: Timelock starts (7-90 days)
     ActiveEscape --> Cancelled: Normal operation executed
-    ActiveEscape --> Escaped: Timelock expires + FinalizeEscape()
+    ActiveEscape --> Escaped: Timelock expires + finalizeEscape(accountId, newVerifier)
     Cancelled --> Normal: Escape cleared, account normal
     Escaped --> Reset: Verifier = BackupOwner
     Reset --> Normal: New config via BackupOwner
 ```
+
+Both entrypoints take the account id; `finalizeEscape` also takes the verifier the account falls
+back to (`contracts/build/UnifiedSmartWalletV3.manifest.json`, implemented in
+`contracts/UnifiedSmartWallet.Escape.cs`).
 
 ### 9.2 Security Properties
 

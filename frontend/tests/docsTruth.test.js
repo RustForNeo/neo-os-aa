@@ -99,7 +99,10 @@ const V2_DEBT = {
 // ContractManagement is the Neo native contract: contracts/UnifiedSmartWallet.Accounts.cs:404 calls
 // ContractManagement.GetContract and tests/AbstractAccount.Contracts.Tests/*.cs invoke the native
 // "getContract" by string, so a document that reads a NEF back that way names no AA entrypoint.
-const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'ContractManagement', 'System', 'CryptoLib', 'Storage', 'Helper', 'ExecutionEngine', 'Neo']);
+// CallFlags is the SmartContract.Framework enum used as the third argument of Contract.Call; it is a
+// type, not an entrypoint, and naming it here is what keeps the scan's vocabulary from being widened
+// entry by entry (DS-CU-210 section 3).
+const FRAMEWORK_RECEIVERS = new Set(['Runtime', 'Contract', 'ContractManagement', 'System', 'CryptoLib', 'Storage', 'Helper', 'ExecutionEngine', 'Neo', 'CallFlags']);
 // Inline code that looks like an entrypoint but is a parameter, a field or a service name.
 // callHash is a field of the pending-module-call record (contracts/UnifiedSmartWallet.Models.cs:65),
 // not a callable; DS-CU-202 section 4.
@@ -298,6 +301,130 @@ function historicalSections(lines) {
   });
   return flags;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fenced code blocks. The ratchet above reads inline-code spans, so a dead name inside a fence was
+// invisible by construction: CU-202 (finding F3) lost 33 dead names between two V2 documents that
+// way. The scan below reads fences too, and it separates a mention from a claim, because the two
+// need opposite treatment (DS-CU-210 section 3):
+//
+//   a CLAIM is a name the block presents as something to call or to look up on the current runtime:
+//   `name(` in code position, a `name:` value in the definition list of a doc example, a quoted
+//   method argument of Contract.Call, or a `public static <ret> Name(` definition.
+//   A claim whose name the repository does not contain is drift and must be corrected.
+//
+//   a MENTION is a bare identifier with no call syntax - a mermaid state or node label, a field, a
+//   type, a variable. It asserts nothing about the ABI, so it is recorded in V2_FENCE_MENTIONS with
+//   the reason it stays instead of being counted as a claim. This is why `HasID` or `CallCustom` in
+//   a flowchart is not debt while `IsAnyExecutionActive()` in a C# block is.
+//
+// Two document-level mechanisms bound the rule, both existing ones: a line that marks the name
+// removed, and a `## ... historical` section. A third is new and is visible in the document itself:
+// an annotation `<!-- docs-truth: no fence claims for <lang>; reason: ... -->` declares that fenced
+// blocks in the named languages are illustrations of another runtime, not claims about this one.
+// The annotation must name its languages from the vocabulary below, must not name a Neo language,
+// and must carry a reason, so it can silence only the family it states and never "everything".
+const DIAGRAM_LANGUAGES = new Set(['mermaid', 'dot', 'graphviz', 'text', 'ascii']);
+const NEO_FENCE_LANGUAGES = new Set(['csharp', 'cs']);
+const ILLUSTRATIVE_LANGUAGES = new Set(['solidity', 'typescript', 'javascript', 'js', 'python', 'java', 'go', 'rust', 'bash', 'shell', 'sh', 'sql', 'yaml', 'yml', 'json', 'toml', 'ini', 'dockerfile', 'powershell', 'html', 'css', 'xml', 'graphql']);
+const NO_FENCE_CLAIMS = /<!--\s*docs-truth:\s*no fence claims for ([a-z0-9, ]+);\s*reason:\s*(.+?)\s*-->/g;
+// A dated snapshot declares in its own words that its code snippets are evidence of the revision it
+// audited, not a description of what ships. The declaration is a fixed phrase so it can be checked,
+// and a document that carries one is registered in V2_FENCE_SCOPES with a reason: the exemption is
+// never available implicitly, and a new document cannot adopt it without the guard's list changing.
+const HISTORICAL_SNIPPET_SCOPE = /retained as historical security context|as a description of the deployed artifact/i;
+
+// A name is live here exactly when the `entrypoint:` pattern of the ratchet treats it as live, so
+// the fence scan widens the measurement without widening any allowance.
+function isLiveName(name, file) {
+  if (deployedAbi.has(name) || definedNames.has(name) || sdkMethods.has(name)) return true;
+  if (NATIVE_PROFILE_DOCS.includes(file) && nativeAbiNames.has(name)) return true;
+  return false;
+}
+
+// The names a single fenced line asserts. `claim` is a property of the line's own syntax, so a
+// definition spread over two lines (a C# signature with its parameters on the next line) declares
+// itself on the line that carries the name.
+function fenceClaims(line) {
+  const names = new Set();
+  for (const match of line.matchAll(/([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
+  for (const match of line.matchAll(/\b(?:operation|method|entrypoint|function|func)\s*:\s*['"]([A-Za-z_]\w*)['"]/gi)) names.add(match[1]);
+  for (const match of line.matchAll(/["']([A-Za-z_]\w*)["']\s*,\s*(?:CallFlags|CallPermission)/g)) names.add(match[1]);
+  for (const match of line.matchAll(/(?:public|private|internal|protected)\s+static\s+(?:[\w<>[\],.?]+\s+)?([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
+  for (const match of line.matchAll(/DisplayName\("([^"]+)"\)/g)) names.add(match[1]);
+  return [...names].filter((name) => ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1))
+    && !FRAMEWORK_RECEIVERS.has(name) && !NON_CALLABLES.has(name));
+}
+
+// What the fenced scan finds, as data: { claims: { file: [names] }, mentions: { file: [names] } }.
+// Kept as a function, not as assertions, so the planted-drift test can call it on a temporary copy
+// of a document and see exactly what the guard would report.
+function fenceScan() {
+  const claims = {};
+  const mentions = {};
+  const snippetScopes = new Set();
+  const files = tracked.filter((file) => file.endsWith('.md')
+    && !file.startsWith('docs/proposals/') && !file.startsWith('docs/reports/') && !file.startsWith('docs/plans/')
+    && !CURRENT_DOCS.includes(file));
+  for (const file of files) {
+    const text = read(file);
+    const lines = text.split('\n');
+    const historical = historicalSections(lines);
+    // The scope note sits in the document's preamble, so it applies to the snippets after it; the
+    // pre-pass keeps that order-independent rather than making the note's position load-bearing.
+    const snippetScope = HISTORICAL_SNIPPET_SCOPE.test(text.replace(/\s+/g, ' '));
+    if (snippetScope) snippetScopes.add(file);
+    const exempt = new Set();
+    for (const match of text.matchAll(NO_FENCE_CLAIMS)) {
+      const languages = match[1].split(',').map((entry) => entry.trim()).filter(Boolean);
+      for (const language of languages) {
+        assert.ok(ILLUSTRATIVE_LANGUAGES.has(language),
+          `${file}: the no-fence-claims annotation names "${language}", which is not an illustrative (non-Neo) language`);
+        exempt.add(language);
+      }
+      assert.ok(match[2].length >= 40, `${file}: the no-fence-claims annotation needs a reason it must stay`);
+    }
+    for (const language of exempt) {
+      assert.ok(!NEO_FENCE_LANGUAGES.has(language),
+        `${file}: the no-fence-claims annotation covers "${language}", a Neo language a claim can be written in`);
+    }
+    let info = null;
+    lines.forEach((line, index) => {
+      if (/^\s*```/.test(line)) {
+        info = info === null ? line.trim().replace(/^```/, '').trim() : null;
+        return;
+      }
+      if (info === null) return;
+      const language = info.split(/[\s{:]/)[0].toLowerCase();
+      if (exempt.has(language) || snippetScope) return;
+      if (REMOVED.test(line) || historical[index]) return;
+      // A bare identifier is recorded as a mention only in a diagram: a flowchart or state diagram
+      // has a reason to name things that are not called (a node, a state), while a bare identifier
+      // in a code block is a variable or a field. Call syntax is a claim in both, which is why a
+      // state label reading `InitiateEscape()` is reported and `HasID` inside `class … decision`
+      // is recorded instead of being read as an entrypoint.
+      if (DIAGRAM_LANGUAGES.has(language)) {
+        for (const match of line.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
+          const name = match[1];
+          if (!ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1))) continue;
+          if (FRAMEWORK_RECEIVERS.has(name) || NON_CALLABLES.has(name)) continue;
+          if (isLiveName(name, file)) continue;
+          if (!mentions[file]) mentions[file] = new Set();
+          mentions[file].add(name);
+        }
+      }
+      for (const name of fenceClaims(line)) {
+        if (isLiveName(name, file)) continue;
+        (claims[file] ??= []).push(name);
+      }
+    });
+  }
+  const sorted = (map) => Object.fromEntries(Object.entries(map)
+    .map(([file, names]) => [file, [...names].sort()])
+    .sort(([a], [b]) => a.localeCompare(b)));
+  return { claims: sorted(claims), mentions: sorted(mentions), snippetScopes: [...snippetScopes].sort() };
+}
+
 
 function failures() {
   const problems = [];
@@ -996,3 +1123,149 @@ test('CU-163: the V2-era documents do not grow new dead references (ratchet)', (
     }
   }
 });
+
+// Fenced blocks whose names the scan judges to be mentions rather than claims. Each entry is a name
+// that a diagram uses as a label while the code the label stands for is called by its deployed
+// spelling; the arrow of the correction is the other way round from the ratchet, so these are
+// recorded here and the guard fails if one disappears rather than if one appears. DS-CU-210 section 4.
+const V2_FENCE_MENTIONS = {
+  'docs/DATA_FLOW.md': {
+    names: ['CallCustom', 'HasID'],
+    reason: 'Bare mermaid node labels of the authorization flowchart (HasID is the account-id decision node, CallCustom the verifier branch), not calls; the underlying reads are named in the deployed ABI and the diagram is a picture of the flow, not an example a reader copies.',
+  },
+  'docs/ETHEREUM_AA_COMPARISON.md': {
+    names: ['ValidateSig', 'validateUserOpLogic'],
+    reason: 'Bare mermaid node labels in the diagram that maps the Ethereum validation path onto the Neo one (ValidateSig stands for the signature-check stage, validateUserOpLogic for the Ethereum validator logic); neither is written as a call, and the solidity blocks of the same document are already declared illustrative.',
+  },
+  'frontend/src/assets/docs/data-flow.md': {
+    names: ['CallCustom', 'HasID'],
+    reason: 'The rendered copy of the same flowchart; the rendered documents are required to stay in step with their source, so its mention list stands or falls with docs/DATA_FLOW.md.',
+  },
+};
+
+
+// Dated snapshots whose own scope note says their code snippets are evidence of the revision they
+// audited rather than a description of the deployed artifact. The guard requires the phrase to be
+// present; this list is what lets a document use it, so an exemption is never implicit and adopting
+// it in a new document fails the test instead of silencing the scan (DS-CU-210 section 3).
+const V2_FENCE_SCOPES = {
+  'docs/SECURITY_AUDIT_RESULTS.md': 'Dated audit (2026-03-29) whose status note ends "Do not use the historical snippets below as a description of the deployed artifact": the fenced C# is that revision\'s code, and the document already carries the note as the reason its inline entries stay in the ratchet.',
+  'docs/SECURITY_AUDIT.md': 'Dated audit (March 11, 2026) whose summary says it "is retained as historical security context rather than as the sole description of the current system": the same reasoning as the results document, in the file the ratchet already justifies with that marker.',
+  'frontend/src/assets/docs/SECURITY_AUDIT.md': 'The rendered copy of the March 11, 2026 audit, required by this guard to equal docs/SECURITY_AUDIT.md byte for byte, so its snippets inherit that document\'s scope note exactly as its ratchet entries already do.',
+};
+
+test('CU-210: fenced blocks assert nothing the code does not, and the ratchet still holds', () => {
+  const scan = fenceScan();
+  assert.deepEqual(scan.claims, {},
+    `a fenced block calls a name the repository does not define:\n${JSON.stringify(scan.claims, null, 2)}`);
+  const recorded = Object.fromEntries(Object.entries(V2_FENCE_MENTIONS).map(([file, entry]) => [file, entry.names]));
+  const recordedSorted = Object.fromEntries(Object.entries(recorded).sort(([a], [b]) => a.localeCompare(b)));
+  assert.deepEqual(scan.mentions, recordedSorted,
+    'the justified fence mentions changed: a diagram gained a dead label, or a corrected diagram must be removed here');
+  for (const [file, entry] of Object.entries(V2_FENCE_MENTIONS)) {
+    assert.ok(entry.reason && entry.reason.length >= 40, `${file}: the fence-mention entry needs a reason it must stay`);
+  }
+  // The scope list is exact: a snapshot may only use the exemption when it says so, and a document
+  // that starts saying so must be registered with a reason.
+  assert.deepEqual(scan.snippetScopes, Object.keys(V2_FENCE_SCOPES).sort(),
+    'the set of documents claiming a historical-snippet scope changed');
+  for (const [file, reason] of Object.entries(V2_FENCE_SCOPES)) {
+    assert.ok(reason && reason.length >= 40, `${file}: the historical-snippet scope needs a reason it must stay`);
+  }
+});
+
+// Every rule above must be able to fail, so each one gets a document mutant, run against a temporary
+// copy of the tree's document and restored immediately. A mutant that survives means the rule is
+// decoration; the messages are asserted, not the exit code, so an incidental failure elsewhere does
+// not count as a kill. DS-CU-210 section 6.
+test('CU-210: each fenced rule is killed by its planted drift', () => {
+  // fenceScan reports; it only throws for a malformed declaration. A mutant therefore kills its rule
+  // when the reported claim set changes to include the planted name, and an incidental assertion
+  // failure elsewhere is not a kill.
+  const mutants = [
+    {
+      rule: 'a dead call inside a fenced code block is reported (the drift that was invisible before CU-210)',
+      file: 'frontend/src/assets/docs/custom-verifiers.md',
+      plant: (text) => text.replace("  operation: 'updateVerifier',", "  operation: 'setLegacyVerifierAddress',"),
+      claim: 'setLegacyVerifierAddress',
+    },
+    {
+      rule: 'a fenced block cannot show a removed entrypoint as current, and a marked removal silences it',
+      file: 'frontend/src/assets/docs/custom-verifiers.md',
+      plant: (text) => text.replace("  operation: 'updateVerifier',", "  operation: 'setLegacyVerifierAddress', // removed call, kept as the before example"),
+      claim: null,
+    },
+    {
+      rule: 'a definition in a fence is a claim even without a call site',
+      file: 'docs/SECURITY_MODEL.md',
+      plant: (text) => text.replace('### 9.2 Security Properties', '```csharp\npublic static void InitiateLegacyRecovery(UInt160 accountId)\n```\n\n### 9.2 Security Properties'),
+      claim: 'InitiateLegacyRecovery',
+    },
+    {
+      rule: 'a bare identifier in a diagram is recorded as a mention rather than reported as a claim',
+      file: 'docs/DATA_FLOW.md',
+      plant: (text) => text.replace('HasID{Account ID Valid?}', 'HasLegacyIdCheck{Account ID Valid?}'),
+      claim: null,
+      mention: 'HasLegacyIdCheck',
+    },
+    {
+      rule: 'the illustrative-language annotation must carry a reason, so it cannot be a bare silence',
+      file: 'docs/ETHEREUM_AA_COMPARISON.md',
+      plant: (text) => text.replace('reason: the document compares Neo with Ethereum, so every solidity block lists the Ethereum interface (IValidator, IPaymaster, the ECDSA helper), not a Neo entrypoint.', 'reason: short.'),
+      throws: /needs a reason/,
+    },
+    {
+      rule: 'the illustrative-language annotation cannot be widened to a Neo language',
+      file: 'docs/ETHEREUM_AA_COMPARISON.md',
+      plant: (text) => text.replace('no fence claims for solidity;', 'no fence claims for solidity, csharp;'),
+      throws: /not an illustrative \(non-Neo\) language/,
+    },
+  ];
+  for (const mutant of mutants) {
+    const target = path.join(repoRoot, mutant.file);
+    const original = fs.readFileSync(target, 'utf8');
+    const planted = mutant.plant(original);
+    assert.notEqual(planted, original, `${mutant.rule}: the mutant did not change ${mutant.file}`);
+    fs.writeFileSync(target, planted);
+    try {
+      if (mutant.throws) {
+        // assert.throws only tests the error message when the expectation is a function, so the
+        // predicate is written out rather than passed as a regex
+        assert.throws(() => fenceScan(), (error) => mutant.throws.test(error.message),
+          `${mutant.rule}: the planted drift survived`);
+        continue;
+      }
+      const scan = fenceScan();
+      if (mutant.claims) {
+        // the gate held and the widened exemption did not silence the fence it now covers
+        for (const name of mutant.claims) {
+          assert.ok(scan.claims[mutant.file]?.includes(name),
+            `${mutant.rule}: widening the annotation silenced "${name}" in ${mutant.file}`);
+        }
+        continue;
+      }
+      if (mutant.claim) {
+        assert.ok(scan.claims[mutant.file]?.includes(mutant.claim),
+          `${mutant.rule}: the planted drift survived; the scan reported ${JSON.stringify(scan.claims)}`);
+      } else if (mutant.mention) {
+        assert.ok(scan.mentions[mutant.file]?.includes(mutant.mention),
+          `${mutant.rule}: the planted label was not recorded as a mention`);
+        assert.ok(!scan.claims[mutant.file]?.includes(mutant.mention),
+          `${mutant.rule}: the planted label was reported as a claim`);
+      } else {
+        assert.ok(!scan.claims[mutant.file]?.includes('setLegacyVerifierAddress'),
+          `${mutant.rule}: a fence the document marks removed was still reported`);
+      }
+    } finally {
+      fs.writeFileSync(target, original);
+    }
+  }
+  // the mutants leave the tree exactly as they found it
+  for (const mutant of mutants) {
+    const target = path.join(repoRoot, mutant.file);
+    assert.ok(!fs.readFileSync(target, 'utf8').includes('setLegacyVerifierAddress'), `${mutant.file} kept a planted drift`);
+  }
+});
+
+// Dated snapshots whose own scope note says their code snippets are evidence of the revision they
+// audited rather than a description of the deployed artifact. The guard requires the phrase to be

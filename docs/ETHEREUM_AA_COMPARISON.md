@@ -11,6 +11,8 @@ This document maps Ethereum ERC-4337 (Account Abstraction) and ERC-7579 (Modular
 > `docs/reports/aa-neoexpress-gas-cap-20260921.json`. Public activation and
 > deployment remain pending.
 
+<!-- docs-truth: no fence claims for solidity; reason: the document compares Neo with Ethereum, so every solidity block lists the Ethereum interface (IValidator, IPaymaster, the ECDSA helper), not a Neo entrypoint. -->
+
 ---
 
 ## 1. Core Concept Mapping

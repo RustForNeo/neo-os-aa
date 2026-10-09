@@ -109,11 +109,15 @@ key = Helper.Concat(key, nonce.ToByteArray());
 ```mermaid
 stateDiagram-v2
     [*] --> Configured: BackupOwner set
-    Configured --> EscapeInitiated: InitiateEscape() called
+    Configured --> EscapeInitiated: initiateEscape(accountId) called
     EscapeInitiated --> [*]: Normal op cancels escape
-    EscapeInitiated --> EscapeFinalized: Timelock expires + finalizeEscape()
+    EscapeInitiated --> EscapeFinalized: Timelock expires + finalizeEscape(accountId, newVerifier)
     EscapeFinalized --> [*]: Verifier reset to BackupOwner
 ```
+
+The deployed names carry the account id: `initiateEscape(accountId)` and
+`finalizeEscape(accountId, newVerifier)` are the two ABI methods in
+`contracts/build/UnifiedSmartWalletV3.manifest.json` (`contracts/UnifiedSmartWallet.Escape.cs`).
 
 **Features:**
 - **Timelock:** Configurable 7-90 days (604,800-7,776,000 seconds)
@@ -190,7 +194,7 @@ public struct AccountState {
 
 **Reentrancy Protection:**
 ```csharp
-ExecutionEngine.Assert(!IsAnyExecutionActive(), "Reentrant call rejected");
+ExecutionEngine.Assert(!isExecutionActive(accountId), "Reentrant call rejected");
 ```
 - Global execution lock across all operations
 - Fails immediately if any op is in-flight
