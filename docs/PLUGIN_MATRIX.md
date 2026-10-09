@@ -121,7 +121,7 @@ These failures confirm that configuration must still enter through the V3 core c
 - Positive execution tx: `0x6fb033541403164bb66bcdcf58c3c28a76096d74a3da99145d756d8ee402394b`
 - Attack: amount exceeds configured subscription amount
   - Result: `FAULT`
-  - Reason: `Transfer amount exceeds subscription`
+  - Reason: Transfer amount exceeds subscription
 - Attack: replay the same billing-period nonce
   - Result: `FAULT`
   - Reason: `Salt already used`

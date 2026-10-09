@@ -11,6 +11,14 @@
 //   tests/localchain/expected-source.json    the pinned deployed NEF path
 //   the filesystem                           cited receipts
 //
+// The documents and the deployed artifacts do not spell an exported member the same way: the
+// contracts build compiles with nccs, whose `Helper.GetDisplayName(symbol, lowercase: true)` (called
+// by `AbiMethod`'s constructor) lower-cases the first character of every exported member's name, so
+// `ClearAccount` in `contracts/**` is `clearAccount` in a manifest. The rule is stated for contract
+// authors in neo-os-contracts `contracts/README.md` ("The deployed spelling of an exported member");
+// this guard derives the set it affects (the divergent class below) from the manifests and the
+// sources instead of listing names. SS7 of DS-CU-212-20261009.md records the measurement.
+//
 // A rule must be able to fail, so §7 of DS-CU-163-20261009.md pairs every rule with a document
 // mutant and, where the rule reads an artifact, an oracle mutant.
 import test from 'node:test';
@@ -72,30 +80,42 @@ const NO_NAMES = new Set();
 //
 // A `spelling:` entry reads `<written>-><deployed>`: the document writes a spelling that differs from
 // the one the manifest exports, which is a false claim about the deployed artifact even when the C#
-// source defines the written spelling (DS-CU-211, DEC-DS-5). CU-202 recorded these 27 entries in a
-// `case:` bucket that described only the letter that differed; they are the same 27 entries with the
-// same reasons, renamed to say what they are, and the count is unchanged at 34.
+// source defines the written spelling (DS-CU-211, DEC-DS-5). CU-202 recorded these entries in a
+// `case:` bucket that described only the letter that differed; CU-211 renamed the bucket to say what
+// they are, and CU-212 widened the vocabulary so the entries the shape rule could not read at all
+// are visible: 34 names became 55 (48 `spelling:` + 7 `entrypoint:`), the rise CU-212 was dispatched
+// to measure and report. The 21 added `spelling:` entries are the same class as the 27 CU-211
+// reclassified, each already justified by the reason its document carries; 0 of the 34 recorded
+// entries was dropped, because the widened vocabulary is a union with the shape rule.
 const V2_DEBT = {
   'docs/DEPENDENCY-CONVERGENCE-20261008.md': {
     names: ['entrypoint:getAuthTokenInfo'],
     reason: 'The name is the token API of the Web3Auth v11 SDK upgrade this record rejects, not a Neo contract method; the document is a package decision record, and no deployed manifest carries it.',
+  },
+  'docs/ACCOUNT_RECOVERY_AND_IDENTITY.md': {
+    names: ['spelling:ClearAccount->clearAccount', 'spelling:VerifyAdmin->verifyAdmin', 'spelling:VerifyExecution->verifyExecution'],
+    reason: 'The sentences analyse how the recovery modules clean up and verify (MultiSigVerifier.ClearAccount, MultiHook.ClearAccount, SocialRecoveryVerifier.VerifyExecution/VerifyAdmin) and qualify each name with a C# class that no manifest exports; the deployed ABI of those modules spells them clearAccount, verifyExecution and verifyAdmin, so the names are the C# spelling of exported members and stay recorded (DS-CU-212 section 4, verdict SOUND, recorded).',
   },
   'docs/ETHEREUM_AA_COMPARISON.md': {
     names: ['entrypoint:validateUserOp'],
     reason: 'The name is the Ethereum ERC-4337 validator entry point on the Ethereum side of an explicit mapping (IVerifier.validateSignature is compared with IValidator.validateUserOp), not a Neo entrypoint.',
   },
   'docs/SECURITY_AUDIT.md': {
-    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:ValidateSignature->validateSignature'],
+    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:ClearAccount->clearAccount', 'spelling:ClearSessionKey->clearSessionKey', 'spelling:EnterMarketEscrow->enterMarketEscrow', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:SetupRecovery->setupRecovery', 'spelling:ValidateSignature->validateSignature', 'spelling:Verify->verify', 'spelling:VerifyMetaTx->verifyMetaTx'],
     reason: 'Dated audit (March 11, 2026) of an earlier contract generation: the names and code quotes are that revision\'s, and the document is bannered as historical context rather than a description of the current system.',
     marker: 'retained as historical security context',
   },
   'docs/SECURITY_AUDIT_RESULTS.md': {
-    names: ['entrypoint:IsAnyExecutionActive', 'spelling:CallHook->callHook', 'spelling:CallVerifier->callVerifier', 'spelling:CanConfigureHook->canConfigureHook', 'spelling:CanConfigureVerifier->canConfigureVerifier', 'spelling:ConfirmHookUpdate->confirmHookUpdate', 'spelling:ConfirmVerifierUpdate->confirmVerifierUpdate', 'spelling:CreateListing->createListing', 'spelling:ExecuteUserOp->executeUserOp', 'spelling:FinalizeEscape->finalizeEscape', 'spelling:InitiateEscape->initiateEscape', 'spelling:RegisterAccount->registerAccount', 'spelling:RotateAdmin->rotateAdmin', 'spelling:SetDailyLimit->setDailyLimit', 'spelling:SetHooks->setHooks', 'spelling:SetSessionKey->setSessionKey', 'spelling:SettleListing->settleListing', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:UpdateHook->updateHook', 'spelling:UpdateListingPrice->updateListingPrice', 'spelling:UpdateVerifier->updateVerifier', 'spelling:ValidateSignature->validateSignature'],
+    names: ['entrypoint:IsAnyExecutionActive', 'spelling:CallHook->callHook', 'spelling:CallVerifier->callVerifier', 'spelling:CanConfigureHook->canConfigureHook', 'spelling:CanConfigureVerifier->canConfigureVerifier', 'spelling:ClearAccount->clearAccount', 'spelling:ConfirmHookUpdate->confirmHookUpdate', 'spelling:ConfirmVerifierUpdate->confirmVerifierUpdate', 'spelling:CreateListing->createListing', 'spelling:ExecuteUserOp->executeUserOp', 'spelling:FinalizeEscape->finalizeEscape', 'spelling:InitiateEscape->initiateEscape', 'spelling:OnNEP17Payment->onNEP17Payment', 'spelling:PostExecute->postExecute', 'spelling:PreExecute->preExecute', 'spelling:RefundPendingPayment->refundPendingPayment', 'spelling:RegisterAccount->registerAccount', 'spelling:RotateAdmin->rotateAdmin', 'spelling:SetDailyLimit->setDailyLimit', 'spelling:SetHooks->setHooks', 'spelling:SetSessionKey->setSessionKey', 'spelling:SettleListing->settleListing', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:UpdateHook->updateHook', 'spelling:UpdateListingPrice->updateListingPrice', 'spelling:UpdateVerifier->updateVerifier', 'spelling:ValidateSignature->validateSignature'],
     reason: 'Dated audit (2026-03-29): the finding sections preserve original evidence, status labels and code snippets of the audited revision, and the status note says not to read the snippets as a description of the deployed artifact.',
     marker: 'some original code snippets/status labels are intentionally historical',
   },
+  'frontend/src/assets/docs/custom-verifiers.md': {
+    names: ['spelling:Admin->admin'],
+    reason: 'The sentence binds a custom verifier to an account "by an existing Admin of the account": the role is the ABI method the paymaster, the market and the mock target export as admin (contracts/paymaster/Paymaster.cs:91, contracts/market/AAAddressMarket.cs:81, contracts/mocks/MockTransferTarget.cs:34, and the internal HookAuthority.Admin), so the C# spelling is a claim about a name the deployment spells admin and it stays recorded (DS-CU-212 section 4).',
+  },
   'frontend/src/assets/docs/SECURITY_AUDIT.md': {
-    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:ValidateSignature->validateSignature'],
+    names: ['entrypoint:IsAnyExecutionActive', 'entrypoint:IsDomeOracleUnlocked', 'spelling:CanExecuteHook->canExecuteHook', 'spelling:ClearAccount->clearAccount', 'spelling:ClearSessionKey->clearSessionKey', 'spelling:EnterMarketEscrow->enterMarketEscrow', 'spelling:SettleMarketEscrow->settleMarketEscrow', 'spelling:SetupRecovery->setupRecovery', 'spelling:ValidateSignature->validateSignature', 'spelling:Verify->verify', 'spelling:VerifyMetaTx->verifyMetaTx'],
     reason: 'The rendered copy of the dated March 11, 2026 audit: the guard requires this file to equal docs/SECURITY_AUDIT.md byte for byte, so its entries stand or fall with that file and its historical banner.',
     marker: 'retained as historical security context',
   },
@@ -177,6 +197,30 @@ for (const file of tracked) {
     sourceDefinitions.add(match[1]);
   }
 }
+
+// The spelling the compiler exports a C# member under, from the build's own rule and not from a
+// list: nccs lower-cases the first character of the name (`_deploy` keeps its underscore and
+// lower-cases the second). See the rule stated in neo-os-contracts `contracts/README.md`
+// ("The deployed spelling of an exported member") and in the compiler's Helper.GetDisplayName,
+// which AbiMethod calls with lowercase: true.
+const deployedSpellingOfSource = (name) => (name.startsWith('_')
+  ? `_${name.slice(1, 2).toLowerCase()}${name.slice(2)}`
+  : `${name.slice(0, 1).toLowerCase()}${name.slice(1)}`);
+
+// THE DIVERGENT CLASS (DS-CU-212, DEC-DS-6): every C# definition the compiler exports under a
+// DIFFERENT spelling than the source writes. This is the set of names the `ENTRYPOINT` prefix list
+// below could not read, and it is derived from the manifests and the sources rather than listed,
+// because the class is what the renaming rule produces: 198 members at this base, and it moves when
+// a contract exports a new member. A name that merely looks capitalised is not in it, and neither is
+// a C# definition no manifest exports (DEC-DS-5 rule 2: that one is live as source).
+const divergentSpellings = new Set([...sourceDefinitions].filter((name) => {
+  const deployed = deployedSpelling(name);
+  return deployedAbi.has(deployed) && !deployedAbi.has(name);
+}));
+// A source definition the compiler exports under the SAME spelling (only `_deploy` in this
+// repository) is not divergent; the set above would not carry it, and it needs no widening because
+// `deployedAbi` already holds its exact spelling.
+const exportedInSourceSpelling = new Set([...sourceDefinitions].filter((name) => deployedAbi.has(name)));
 
 // The SDK surface: class methods plus the methods that unconditionally report a V3 removal. The
 // native client lives in shared/nativeSmartAccountClient.mjs and is re-exported by sdk/js/src.
@@ -296,18 +340,49 @@ function codeSpans(line) {
   return spans;
 }
 
+// The shape vocabulary: what the `ENTRYPOINT` prefix list reads. It is the base's rule and it stays,
+// because it is also what keeps a diagram label or an English word in a code span from being read as
+// a callable (DS-CU-212, DEC-DS-6 rule 5).
+function shapedLikeEntrypoint(name) {
+  return ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1));
+}
+
+// THE WIDENED VOCABULARY (DS-CU-212): a name is one the guard reads as a callable when the shape
+// vocabulary reads it, or when the compiler exports it under a different spelling than the source
+// writes (the divergent class). The union keeps every name the base read, so no recorded entry can
+// be dropped by the widening.
+function isCallableName(name) {
+  return shapedLikeEntrypoint(name) || divergentSpellings.has(name);
+}
+
+// The names a single code span contributes. A span is a CALL when it ends in `)`: its head (up to
+// the first `(`) is a dotted identifier and its arguments are not names. A span is a name LIST when
+// it has no parentheses at all: it splits on the separators the base used, which is how
+// `MultiSigVerifier.ClearAccount`, `VerifyAdmin` and `createListing, updateListingPrice` are read
+// out of prose. Anything else contributes nothing - `Transfer amount exceeds subscription` (a quoted
+// fault message in docs/PLUGIN_MATRIX.md) and a span that is only `Transfer(` are both neither.
+// Without this rule the split on whitespace reads the first word of English prose as a contract
+// name, and a call whose parentheses are split across two spans loses its argument list.
+function spanSegments(span) {
+  if (span.endsWith(')')) {
+    const head = span.slice(0, Math.max(span.indexOf('('), 0)).trim();
+    return head ? [head] : [];
+  }
+  if (span.includes('(')) return [];
+  return span.split(/[\s,;/]+/).filter(Boolean);
+}
+
 function callableNames(line) {
   const names = [];
   for (const span of codeSpans(line)) {
-    const withoutCall = span.replace(/\(.*$/, '');
-    for (const segment of withoutCall.split(/[\s,;/]+/)) {
+    for (const segment of spanSegments(span)) {
       const receiver = segment.includes('.') ? segment.slice(0, segment.lastIndexOf('.')) : '';
+      const receivers = receiver.split('.');
       const last = segment.split('.').pop();
       if (!last || !/^[A-Za-z_]\w*$/.test(last)) continue;
-      const receivers = receiver.split('.');
       if (FRAMEWORK_RECEIVERS.has(last) || receivers.some((part) => FRAMEWORK_RECEIVERS.has(part))) continue;
       if (NON_CALLABLES.has(last)) continue;
-      if (!ENTRYPOINT.test(last[0].toLowerCase() + last.slice(1))) continue;
+      if (!isCallableName(last)) continue;
       names.push({ name: last, called: span.includes('('), receiver });
     }
   }
@@ -382,7 +457,9 @@ function isLiveName(name, file) {
 
 // The names a single fenced line asserts. `claim` is a property of the line's own syntax, so a
 // definition spread over two lines (a C# signature with its parameters on the next line) declares
-// itself on the line that carries the name.
+// itself on the line that carries the name. The claim side reads the WIDENED vocabulary
+// (DS-CU-212): a fenced call to the source spelling of an exported member is a claim about the
+// deployed artifact, and the shape rule alone could not read it.
 function fenceClaims(line) {
   const names = new Set();
   for (const match of line.matchAll(/([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
@@ -390,7 +467,7 @@ function fenceClaims(line) {
   for (const match of line.matchAll(/["']([A-Za-z_]\w*)["']\s*,\s*(?:CallFlags|CallPermission)/g)) names.add(match[1]);
   for (const match of line.matchAll(/(?:public|private|internal|protected)\s+static\s+(?:[\w<>[\],.?]+\s+)?([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
   for (const match of line.matchAll(/DisplayName\("([^"]+)"\)/g)) names.add(match[1]);
-  return [...names].filter((name) => ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1))
+  return [...names].filter((name) => isCallableName(name)
     && !FRAMEWORK_RECEIVERS.has(name) && !NON_CALLABLES.has(name));
 }
 
@@ -449,7 +526,12 @@ function fenceScan() {
         for (const match of line.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
           const name = match[1];
           if (claimed.has(name)) continue;
-          if (!ENTRYPOINT.test(name[0].toLowerCase() + name.slice(1))) continue;
+          // The mention ledger keeps the SHAPE vocabulary (DS-CU-212, DEC-DS-6 rule 4): a diagram
+          // label is prose about a flow, so widening it would book ordinary words (`Transfer`,
+          // `Verify`, `Admin`) as debt and force the exact mention list to grow - an allowance
+          // widened to silence a finding. A label that is really a call is a claim above and is read
+          // under the widened vocabulary there.
+          if (!shapedLikeEntrypoint(name)) continue;
           if (FRAMEWORK_RECEIVERS.has(name) || NON_CALLABLES.has(name)) continue;
           if (isLiveName(name, file)) continue;
           if (!mentions[file]) mentions[file] = new Set();
@@ -1144,6 +1226,12 @@ function ratchetDebt() {
       .filter(({ name }) => !sdkMethods.has(name))
       // The `spelling` bucket below owns every case-variant entry, so such a name is reported once.
       .filter(({ name }) => deployedSpelling(name) === undefined)
+      // A dead reference is a NAME, so a token whose spelling no ABI member carries must still read
+      // as one by shape. Without this the widened vocabulary would charge prose that begins with a
+      // word the ABI happens to use - `Transfer amount exceeds subscription`
+      // (docs/PLUGIN_MATRIX.md:124) - as a dead entrypoint, inventing debt for an English word
+      // (DS-CU-212, DEC-DS-6 rule 5).
+      .filter(({ name }) => shapedLikeEntrypoint(name))
       .filter(({ name }) => !isLiveName(name, file))
       .map(({ name }) => `entrypoint:${name}`)),
     spelling: (line) => callableNames(line)

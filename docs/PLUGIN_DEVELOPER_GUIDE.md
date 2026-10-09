@@ -58,11 +58,11 @@ public interface IVerifier
     bool ValidateSignature(UInt160 accountId, UserOperation op);
 
     // Called after target execution; implement as a no-op when unused.
-    void PostExecute(UInt160 accountId, UserOperation op, object result);
+    void postExecute(UInt160 accountId, UserOperation op, object result);
 
     // Mandatory lifecycle cleanup before a verifier is detached or an AA shell
     // is transferred. A fault must abort the enclosing transition.
-    void ClearAccount(UInt160 accountId);
+    void clearAccount(UInt160 accountId);
 
     // Optional: Get exact payload bytes for signing
     ByteString GetPayload(UInt160 accountId, UInt160 targetContract,
@@ -205,17 +205,24 @@ public interface IHook
     bool SupportsV3();
 
     // Called before execution (can reject)
-    void PreExecute(UInt160 accountId, object[] opParams);
+    void preExecute(UInt160 accountId, object[] opParams);
 
     // Called after execution (cleanup/logging)
-    void PostExecute(UInt160 accountId, object[] opParams, object result);
+    void postExecute(UInt160 accountId, object[] opParams, object result);
 
     // Mandatory lifecycle cleanup before removal or shell transfer.
-    void ClearAccount(UInt160 accountId);
+    void clearAccount(UInt160 accountId);
 }
 ```
 
-The `opParams` ABI is canonical and identical in `PreExecute` and `PostExecute`:
+The names above are the deployed ones. The contracts build compiles with `nccs`, which lower-cases
+the first letter of every exported member, so the C# source declares these callbacks in PascalCase
+(PreExecute, PostExecute, ClearAccount) while the manifest your plugin deploys exports the three
+names above — and the core calls the manifest spelling. The rule is stated for contract authors in
+`neo-os-contracts` `contracts/README.md` ("The deployed spelling of an exported member"); writing
+the C# spelling in documentation is a claim about a name the deployment does not carry.
+
+The `opParams` ABI is canonical and identical in `preExecute` and `postExecute`:
 
 ```text
 opParams = [TargetContract, Method, Args, Nonce, Deadline, Signature]
@@ -228,7 +235,7 @@ the tuple as the signed operation and must not mutate or reconstruct authorizati
 independent caller-controlled value. The core's runtime suite verifies both the positive target
 path and rejection of an unlisted target through the real NeoVM callback path.
 
-`ClearAccount(accountId)` is a mandatory lifecycle method for both verifier and
+`clearAccount(accountId)` is a mandatory lifecycle method for both verifier and
 hook plugins. It must delete every account-scoped key owned by the plugin and
 must fault on an internal cleanup failure. It must also be idempotent for an
 account the plugin never configured, because the core calls it on every
@@ -237,7 +244,7 @@ core's call into the missing method faults uncatchably, so every account bound
 to that plugin is locked to it (no verifier rotation, no escape finalization, no
 market sale). Plugins that custody user funds per account (for example the
 recovery verifier's oracle credit) must return them to the account owner in
-`ClearAccount` rather than orphan them.
+`clearAccount` rather than orphan them.
 
 **Transfer source is the proxy address, never the account id.** A virtual AA
 account holds its assets at the core-derived proxy script hash
@@ -269,20 +276,20 @@ over `Global`.
 | **Authority validation** | Prevent unauthorized configuration | Configuration reaches a hook through the AA core, and the shipped hooks gate it on their stored `authorizedCore` (`HookAuthority.ValidateAdminCaller`); the core's read method is `canConfigureHook(accountId, hookHash)` |
 | **Context validation** | Ensure AA core is caller | The hook checks the calling core against its stored `authorizedCore`; the core's read method is `canExecuteHook(accountId, hookHash, …)` |
 | **Revert on reject** | Atomic rejection pattern | Throw `ExecutionEngine.Assert` |
-| **No external calls in Pre** | Prevent reentrancy | Only inspect parameters |
-| **Careful Post logic** | No validation in post | Only cleanup/logging |
+| **No external calls in pre** | Prevent reentrancy | Only inspect parameters |
+| **Careful post logic** | No validation in post | Only cleanup/logging |
 | **State consistency** | Idempotent operations | Handle re-entrancy/timeout |
-| **ClearAccount** | Cleanup on removal | Delete all storage for account |
+| **clearAccount** | Cleanup on removal | Delete all storage for account |
 
 ### 3.3 Common Vulnerabilities
 
-#### PG-05: Reentrancy in PreExecute
+#### PG-05: Reentrancy in preExecute
 
 **Severity:** High
 
 ```csharp
 // VULNERABLE: Can call back into AA
-public static void PreExecute(UInt160 accountId, object[] opParams)
+public static void preExecute(UInt160 accountId, object[] opParams)
 {
     // Check limit in storage
     BigInteger spent = GetSpent(accountId);
@@ -294,19 +301,19 @@ public static void PreExecute(UInt160 accountId, object[] opParams)
     // Attacker re-enters with same operation!
 }
 
-// SECURE: No external calls in PreExecute
-public static void PreExecute(UInt160 accountId, object[] opParams)
+// SECURE: No external calls in preExecute
+public static void preExecute(UInt160 accountId, object[] opParams)
 {
     BigInteger spent = GetSpent(accountId);
     if (spent + amount > limit)
     {
         ExecutionEngine.Assert(false, "Limit exceeded");
     }
-    // Store for PostExecute to consume
+    // Store for postExecute to consume
     Storage.Put(..., spent + amount);
 }
 
-public static void PostExecute(UInt160 accountId, object[] opParams, object result)
+public static void postExecute(UInt160 accountId, object[] opParams, object result)
 {
     if (!DidExecutionSucceed(result)) return;
 
@@ -315,21 +322,21 @@ public static void PostExecute(UInt160 accountId, object[] opParams, object resu
 }
 ```
 
-#### PG-06: Double-Spend in PostExecute
+#### PG-06: Double-Spend in postExecute
 
 **Severity:** High
 
 ```csharp
 // VULNERABLE: Not checking if already consumed
-public static void PostExecute(UInt160 accountId, object[] opParams, object result)
+public static void postExecute(UInt160 accountId, object[] opParams, object result)
 {
-    // Attacker calls PostExecute twice!
+    // Attacker calls postExecute twice!
     BigInteger current = GetSpent(accountId);
     Storage.Put(..., current + amount);
 }
 
 // SECURE: Use idempotent operations
-public static void PostExecute(UInt160 accountId, object[] opParams, object result)
+public static void postExecute(UInt160 accountId, object[] opParams, object result)
 {
     if (!DidExecutionSucceed(result)) return;
 
@@ -352,7 +359,7 @@ public static void PostExecute(UInt160 accountId, object[] opParams, object resu
 
 ```csharp
 // VULNERABLE: Falsy results treated as success
-public static void PostExecute(UInt160 accountId, object[] opParams, object result)
+public static void postExecute(UInt160 accountId, object[] opParams, object result)
 {
     // result = 0 means failure, but we still spend!
     Storage.Put(..., GetSpent(accountId) + amount);
@@ -367,7 +374,7 @@ private static bool DidExecutionSucceed(object result)
     return true;
 }
 
-public static void PostExecute(UInt160 accountId, object[] opParams, object result)
+public static void postExecute(UInt160 accountId, object[] opParams, object result)
 {
     if (!DidExecutionSucceed(result)) return;
     Storage.Put(..., GetSpent(accountId) + amount);
@@ -393,7 +400,7 @@ public static void SetPublicKey(UInt160 accountId, ByteString pubKey)
 
 ```csharp
 // REQUIRED for all hooks
-public static void PreExecute(UInt160 accountId, object[] opParams)
+public static void preExecute(UInt160 accountId, object[] opParams)
 {
     HookAuthority.ValidateExecutionCaller(accountId,
         Runtime.CallingScriptHash, Runtime.ExecutingScriptHash);
@@ -479,9 +486,9 @@ public static void SetPublicKey(UInt160 accountId, ByteString pubKey)
 - [ ] Deadline included in all payload hashes
 - [ ] Signature length enforced
 - [ ] Gas bounds on loops/recursion
-- [ ] No external calls in `PreExecute`
-- [ ] Idempotent `PostExecute` operations
-- [ ] `ClearAccount` deletes all storage prefixes
+- [ ] No external calls in `preExecute`
+- [ ] Idempotent `postExecute` operations
+- [ ] `clearAccount` deletes all storage prefixes
 
 ### 6.2 Security Testing
 
