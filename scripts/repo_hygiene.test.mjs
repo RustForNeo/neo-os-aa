@@ -5,8 +5,20 @@
 // frontend/.next/ and nested tool state, and started matching the tracked
 // .codegraph/.gitignore. These tests fail on any such regression.
 //
-// `git check-ignore --no-index` evaluates the root and nested .gitignore files
-// exactly as `git add` would, including for paths that do not exist yet.
+// The test runs in two environments and says which one it is in:
+//
+//   * a git work tree, where "git check-ignore --no-index" evaluates the root
+//     and nested .gitignore files exactly as "git add" would, including for
+//     paths that do not exist yet, and "git ls-files" names the tracked files;
+//   * a clean "git archive" export, which carries no ".git" directory and no
+//     index, so git cannot answer anything. The review service mandates that
+//     export, so the ignore questions are answered there by reading the
+//     .gitignore files directly (scripts/lib/gitignore-rules.mjs), and the one
+//     question that needs the index is skipped with the environment named in
+//     the skip reason. Nothing is skipped silently and no assertion is dropped:
+//     in a work tree the git answers are the ones asserted, and the reader is
+//     additionally held to them over every path in the tree by the test
+//     "the ignore rules read the same in this tree and in git".
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -14,6 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { loadIgnoreRules } from "./lib/gitignore-rules.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -120,20 +133,74 @@ function git(args, input) {
   return execFileSync("git", ["-c", "core.excludesFile=/dev/null", ...args], { cwd: repoRoot, encoding: "utf8", input });
 }
 
-/** Returns the subset of `paths` that the repository's ignore rules exclude. */
-function ignoredPaths(paths) {
+// The export carries no .git directory, so a git that answers "fatal: not a
+// git repository" is the signal that git-based answers are unavailable, not a
+// failure of the tree under test.
+const hasGitDirectory = fs.existsSync(path.join(repoRoot, ".git"));
+
+function workTreeError() {
   try {
-    const out = git(["check-ignore", "--no-index", "--stdin"], `${paths.join("\n")}\n`);
-    return new Set(out.split("\n").filter(Boolean));
+    git(["rev-parse", "--is-inside-work-tree"]);
+    return null;
   } catch (error) {
-    // Exit status 1 means "none of the paths is ignored"; anything else is a real failure.
-    if (error.status === 1) return new Set();
+    if (error.status === 128) return error;
     throw error;
   }
 }
 
-test("the hygiene checks run inside a git work tree", () => {
-  assert.equal(git(["rev-parse", "--is-inside-work-tree"]).trim(), "true");
+const workTreeFailure = hasGitDirectory ? workTreeError() : new Error("no .git directory");
+const inWorkTree = workTreeFailure === null;
+const ignoreReader = inWorkTree ? null : loadIgnoreRules(repoRoot);
+
+/** Returns the subset of `paths` that the repository's ignore rules exclude. */
+function ignoredPaths(paths) {
+  if (inWorkTree) {
+    try {
+      const out = git(["check-ignore", "--no-index", "--stdin"], `${paths.join("\n")}\n`);
+      return new Set(out.split("\n").filter(Boolean));
+    } catch (error) {
+      // Exit status 1 means "none of the paths is ignored"; anything else is a real failure.
+      if (error.status === 1) return new Set();
+      throw error;
+    }
+  }
+  return ignoreReader.ignoredSet(paths);
+}
+
+/** Every path of the exported tree, files and directories, excluding ".git". */
+function treePaths() {
+  const found = [];
+  const visit = (relative) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, relative), { withFileTypes: true })) {
+      if (entry.name === ".git") continue;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) continue;
+      found.push(child);
+      if (entry.isDirectory()) visit(child);
+    }
+  };
+  visit("");
+  return found;
+}
+
+test("the hygiene checks know which environment they are running in", () => {
+  // This is not the work-tree claim the previous version made; it is the claim
+  // the two environments can both keep. An export must really be one (no .git
+  // for a git-based answer to be silently wrong about), and a checkout must
+  // really have a usable work tree, because every other test here then takes
+  // its answers from git rather than from the reader.
+  if (inWorkTree) {
+    assert.equal(hasGitDirectory, true, "a work tree is diagnosed from a .git directory");
+    assert.equal(git(["rev-parse", "--is-inside-work-tree"]).trim(), "true");
+  } else {
+    assert.equal(hasGitDirectory, false, "the export carries no .git directory");
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, ".gitignore")),
+      true,
+      "the export still carries the ignore rules the reader needs",
+    );
+    assert.equal(ignoreReader.files().length > 0, true, "the reader found at least one .gitignore file");
+  }
 });
 
 test("secrets, dependencies, build output and tool state stay ignored at every depth", () => {
@@ -148,14 +215,39 @@ test("checked-in examples, provenance anchors and sources are not ignored", () =
   assert.deepEqual(hidden, [], `these paths are wrongly ignored:\n  ${hidden.join("\n  ")}`);
 });
 
-test("no tracked file matches an ignore rule", () => {
+test("no tracked file matches an ignore rule", { skip: inWorkTree ? false : "a clean git archive export has no index: git ls-files cannot name the tracked files" }, () => {
   // A tracked file that also matches .gitignore disappears from `git add -A`
   // after deletion or rename and marks a pattern that is broader than intended.
+  // Only the index can answer this, so the export skips it by name rather than
+  // passing on a question it did not ask.
   const tracked = git(["ls-files", "--cached", "--ignored", "--exclude-standard"])
     .split("\n")
     .filter(Boolean);
   assert.deepEqual(tracked, [], `tracked files matching .gitignore:\n  ${tracked.join("\n  ")}`);
 });
+
+test("the ignore rules read the same in this tree and in git", { skip: inWorkTree ? false : "a clean git archive export has no git to compare the reader against" }, () => {
+  // In a work tree the reader is not trusted: every path of the tree is asked
+  // of git as well, so the answers the export does use are the answers git
+  // gives here. This is what keeps the export's fallback from drifting into a
+  // second, quieter set of ignore rules.
+  const paths = treePaths();
+  assert.ok(paths.length > 100, `the comparison must cover the tree, saw ${paths.length} paths`);
+  const fromGit = new Set();
+  const batch = 500;
+  for (let index = 0; index < paths.length; index += batch) {
+    for (const ignored of ignoredPaths(paths.slice(index, index + batch))) fromGit.add(ignored);
+  }
+  const reader = loadIgnoreRules(repoRoot);
+  const disagreements = paths
+    .filter((relative) => reader.isIgnored(relative, isDirectory(relative)) !== fromGit.has(relative))
+    .map((relative) => `${relative}: reader ${reader.isIgnored(relative, isDirectory(relative))}, git ${fromGit.has(relative)}`);
+  assert.deepEqual(disagreements, [], `the reader and git disagree:\n  ${disagreements.join("\n  ")}`);
+});
+
+function isDirectory(relative) {
+  return fs.statSync(path.join(repoRoot, relative)).isDirectory();
+}
 
 // SR-19: without .github/dependabot.yml the dependency graph produces no update
 // PRs and the alert inventory drifts stale. Every package.json tree in the
