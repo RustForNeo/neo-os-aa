@@ -244,6 +244,12 @@ test("a rule that matches nothing cannot silently pass", () => {
 // were inverted, a trailing "/**/" ignored the wrong paths, a trailing "/**"
 // named the directory it was supposed to exclude, and an unclosed "[" was read
 // as a literal character where git stops reading the pattern.
+//
+// The second half of the table answers a second round of the same defect: a
+// rule that matches a directory excludes everything below it, and a reader that
+// propagated only the directory-only spelling of a rule lost the whole subtree
+// of every ordinary pattern. The ".vercel" entry is the literal case the
+// hygiene gate pinned and the export answered wrongly.
 const ORACLE_CASES = [
   // "[!...]" and "[^...]" select the characters the class excludes, and both
   // spellings are valid.
@@ -291,6 +297,63 @@ const ORACLE_CASES = [
   ["a[", [["a[", false, false], ["ab", false, false]]],
   ["[!abc", [["a", false, false], ["[!abc", false, false]]],
   ["a[]b", [["a[]b", false, false], ["ab", false, false]]],
+  // A rule that names a directory excludes what is inside it whether or not it
+  // is spelled with a trailing slash, because "git add" never descends into an
+  // excluded directory. Every spelling of a rule is here: a plain basename, a
+  // glob, an anchored pattern with a slash, a "**" segment, a class, and a
+  // negated class.
+  ["foo", [
+    ["foo", true, true],
+    ["foo/child.txt", false, true],
+    ["foo/deep/child.txt", false, true],
+    ["x/foo/child.txt", false, true],
+    ["foobar", false, false],
+  ]],
+  [".vercel", [
+    [".vercel", true, true],
+    [".vercel/project.json", false, true],
+    ["frontend/.vercel/project.json", false, true],
+    [".vercelx/project.json", false, false],
+  ]],
+  ["*.log", [
+    ["build.log", true, true],
+    ["build.log/child.txt", false, true],
+    ["x/build.log/child.txt", false, true],
+    ["notes.log.txt", false, false],
+  ]],
+  ["a/*", [
+    ["a/b", true, true],
+    ["a/b/child.txt", false, true],
+    ["x/a/b.txt", false, false],
+  ]],
+  ["**/cache", [
+    ["cache", true, true],
+    ["cache/entry.bin", false, true],
+    ["x/cache/entry.bin", false, true],
+    ["xcache", false, false],
+  ]],
+  ["[ab]oo", [
+    ["aoo", true, true],
+    ["aoo/child.txt", false, true],
+    ["coo/child.txt", false, false],
+  ]],
+  ["[!x]oo", [
+    ["aoo", true, true],
+    ["aoo/child.txt", false, true],
+    ["xoo/child.txt", false, false],
+  ]],
+  // A negation that names the ignored directory itself is the last matching
+  // rule for that directory, so the subtree stays visible ...
+  ["unbar/\n!unbar", [
+    ["unbar", true, false],
+    ["unbar/child.txt", false, false],
+  ]],
+  // ... while a negation that names something below an excluded directory
+  // cannot bring it back: git never descends far enough to read it.
+  ["ignored\n!ignored/keep.txt", [
+    ["ignored/keep.txt", false, true],
+    ["ignored/other.txt", false, true],
+  ]],
 ];
 
 /**

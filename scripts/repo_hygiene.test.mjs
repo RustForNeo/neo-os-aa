@@ -231,7 +231,14 @@ test("the ignore rules read the same in this tree and in git", { skip: inWorkTre
   // of git as well, so the answers the export does use are the answers git
   // gives here. This is what keeps the export's fallback from drifting into a
   // second, quieter set of ignore rules.
-  const paths = treePaths();
+  //
+  // The tree's own paths are not the whole question. The two lists above name
+  // classes of file that mostly do not exist here yet, and those are exactly
+  // the paths the export answers from the reader alone, so they are compared
+  // too. The ".vercel" entries proved the point: no path in this tree is below
+  // one, and a reader that stopped propagating an ignored ancestor stayed green
+  // here while the archive export answered all three of them wrongly.
+  const paths = [...new Set([...treePaths(), ...MUST_BE_IGNORED, ...MUST_NOT_BE_IGNORED])];
   assert.ok(paths.length > 100, `the comparison must cover the tree, saw ${paths.length} paths`);
   const fromGit = new Set();
   const batch = 500;
@@ -246,7 +253,11 @@ test("the ignore rules read the same in this tree and in git", { skip: inWorkTre
 });
 
 function isDirectory(relative) {
-  return fs.statSync(path.join(repoRoot, relative)).isDirectory();
+  // The pinned lists name paths that do not exist yet, and a path that is not
+  // there is asked about as a file, the way "git check-ignore" reads a bare
+  // spelling it cannot stat.
+  const absolute = path.join(repoRoot, relative);
+  return fs.existsSync(absolute) && fs.statSync(absolute).isDirectory();
 }
 
 // SR-19: without .github/dependabot.yml the dependency graph produces no update
