@@ -16,26 +16,33 @@
 // "?", "[...]" character classes (including "[!...]" and "[^...]" negation,
 // ranges and "[:name:]" classes) and "**". A pattern's own file position is
 // fixed by where it was read from, and a pattern without a "/" matches the
-// basename at any depth under that directory.
+// basename at any depth under that directory. A rule that excludes a directory
+// excludes everything below it, whatever its spelling: the walk never descends
+// past an ancestor a positive rule names, whether that rule is "foo/", "foo",
+// "*.log", "a/*" or "**/cache".
 //
-// Two documented divergences, both measured against git 2.50.1:
+// One documented divergence, measured against git 2.50.1:
 //
-//   * git resolves a path's rules bottom-up and would report a path under an
-//     ignored directory as not-ignored when a deeper ".gitignore" re-includes
-//     it. This walk stops at an ignored directory, which is what "git add"
-//     does. The cross-check in the hygiene test fails if the two disagree
-//     anywhere in this repository.
+//   * "git check-ignore" answers "foo/" as ignored under the pattern "foo/**",
+//     while "git add" does not exclude the directory "foo" itself: only what is
+//     below it. This reader follows "git add", because excluding what would be
+//     committed is the question the hygiene gate asks.
+//
+// Two shapes that look like divergences and are not, both measured against git
+// 2.50.1:
+//
+//   * a path under an excluded directory cannot be re-included, not even by a
+//     ".gitignore" inside that directory: git never descends into it, and
+//     neither does this walk. With "logs/" in the root ignore file and
+//     "logs/.gitignore" holding "!keep.txt", "git check-ignore" and this reader
+//     both still answer "logs/keep.txt" ignored.
 //   * a "[" that never closes, or that closes to an empty class ("a[]b"), makes
 //     git stop reading the pattern at all, so such a pattern excludes nothing.
 //     This reader answers that the same way. What it does not reproduce is one
 //     degenerate class: wildmatch reads a "-" that opens a class body as the
 //     start of an unterminated range, so "[!-a]" excludes "a" and "-" while
-//     this reader reads "-" as an ordinary member.
-//   * "git check-ignore" answers "foo/" as ignored under the pattern "foo/**",
-//     while "git add" does not exclude the directory "foo" itself: only what is
-//     below it. This reader follows "git add", because excluding what would be
-//     committed is the question the hygiene gate asks. Every documented shape
-//     of "[...]" and "**" is otherwise answered as git answers it.
+//     this reader reads "-" as an ordinary member. Every other documented shape
+//     of "[...]" is answered as git answers it.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -393,14 +400,18 @@ export function loadIgnoreRules(directory) {
       if (segments.length === 0) return false;
       // A path under an ignored directory is ignored whatever its own rules
       // say; the walk mirrors the descent "git add" performs and stops there.
-      // Only a directory rule can make an ancestor ignored — a basename rule
-      // such as "[!a]*" says nothing about "a/deep" by matching "a" — and only
-      // a positive verdict stops the walk, which is how "logs/" plus
-      // "!logs/keep.txt" leaves that one file visible.
+      // Every kind of rule can make an ancestor directory ignored, not only the
+      // spelling with a trailing slash: "foo", "*.log", "a/*" and "**/cache"
+      // exclude the directory they name exactly as "foo/" does, and git never
+      // descends into it, so the subtree goes with it. Asking the rules about
+      // that ancestor as a directory is what keeps the answer; a rule that is
+      // not directory-only still matches the directory's name. Only a positive
+      // verdict stops the walk, which is how "logs/" plus "!logs/keep.txt"
+      // leaves that one file visible and how "logs" plus "!logs" re-includes
+      // the whole directory.
       const ancestors = segments.length - 1;
       for (let depth = 1; depth <= ancestors; depth += 1) {
-        const directoryRules = accumulated(segments, depth).filter(({ rule }) => rule.directoryOnly);
-        const verdict = verdictAt(directoryRules, segments, depth, true);
+        const verdict = verdictAt(accumulated(segments, depth), segments, depth, true);
         if (verdict.ignored && !verdict.lastRuleNegated) return true;
       }
       // The path itself: its own directory's rules apply to it, and to a
