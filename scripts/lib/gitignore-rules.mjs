@@ -38,11 +38,9 @@
 //     both still answer "logs/keep.txt" ignored.
 //   * a "[" that never closes, or that closes to an empty class ("a[]b"), makes
 //     git stop reading the pattern at all, so such a pattern excludes nothing.
-//     This reader answers that the same way. What it does not reproduce is one
-//     degenerate class: wildmatch reads a "-" that opens a class body as the
-//     start of an unterminated range, so "[!-a]" excludes "a" and "-" while
-//     this reader reads "-" as an ordinary member. Every other documented shape
-//     of "[...]" is answered as git answers it.
+//     This reader answers that the same way, and so does a "-" that opens a
+//     class body: it is a member, and "[!-a]" excludes what is neither "-" nor
+//     "a" here exactly as it does in wildmatch.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -140,9 +138,13 @@ function stripTrailingSlashes(value) {
 }
 
 // The characters a bracket expression can add to a regular-expression class
-// without escaping. "-" is left alone so a range stays a range; "]" and "\" are
-// escaped where they appear as members.
-const LITERAL_CLASS_CHARACTERS = /[\\\]^]/;
+// without escaping: "]", "\" and "^" as members. A lone "-" is escaped too,
+// because it reaches this function only as a literal member — a range is
+// parsed into one multi-character part and is emitted without it — and an
+// unescaped one directly after the separator a negated class opens with would
+// read as a range instead: "[!-a]" excludes neither "-" nor "a", never every
+// character from "/" to "a".
+const LITERAL_CLASS_CHARACTERS = /[\\\]^-]/;
 
 // The POSIX class names git's wildmatch accepts, with the ranges each stands
 // for. They are expanded here rather than passed through, so the reader does
