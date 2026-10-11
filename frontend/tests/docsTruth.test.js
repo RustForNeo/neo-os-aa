@@ -1944,6 +1944,33 @@ for (const shape of R3_SHAPES) {
 }
 // <<< CU-210 R3 comment shapes
 
+// The control the shapes above need in order to mean anything: the lexer must not have emptied the
+// claim set to make them pass. Two halves - the unmutated tree still reports exactly what the guard
+// records (nothing invented, nothing newly silenced), and the same dead name in CODE position in
+// the same document is still reported, so a silence in the shapes above is the comment rule's work
+// and not a reader that stopped reading.
+test('CU-210 R3: CONTROL - the unmutated document still yields its claims', () => {
+  const scan = fenceScan();
+  assert.deepEqual(scan.claims, {},
+    `the lexer invented drift on the unmutated tree: ${JSON.stringify(scan.claims)}`);
+  const recorded = Object.fromEntries(Object.entries(V2_FENCE_MENTIONS).map(([file, entry]) => [file, entry.names]));
+  const recordedSorted = Object.fromEntries(Object.entries(recorded).sort(([a], [b]) => a.localeCompare(b)));
+  assert.deepEqual(scan.mentions, recordedSorted,
+    'the lexer changed the recorded fence mentions on the unmutated tree');
+  const target = path.join(repoRoot, R3_FILE);
+  const original = fs.readFileSync(target, 'utf8');
+  fs.writeFileSync(target, `${original.replace(/\n*$/, '\n')}${r3Fence('csharp', R3_COMMENTED)}`);
+  try {
+    const planted = fenceScan();
+    assert.ok((planted.claims[R3_FILE] ?? []).includes(R3_COMMENTED_NAME),
+      `the same name in code position was not reported, so the shapes above prove nothing; the scan reported ${JSON.stringify(planted.claims)}`);
+  } finally {
+    fs.writeFileSync(target, original);
+  }
+  assert.equal(fs.readFileSync(target, 'utf8'), original,
+    `${R3_FILE} was not restored to its pre-control bytes`);
+});
+
 // The other direction of the matrix: a comment form the lexer names but no shape plants is an
 // untested rule, and a shape for a form the lexer does not implement is a test of nothing. The two
 // are compared here rather than one being derived from the other, so adding a row to the lexer's
