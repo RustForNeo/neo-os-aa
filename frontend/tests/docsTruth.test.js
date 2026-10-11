@@ -385,15 +385,16 @@ function isCallableName(name) {
 const SENTENCE_TAIL = /[.,;:!?]+$/;
 const stripSentenceTail = { enabled: true };
 function spanSegments(span) {
-  if (span.endsWith(')')) {
-    const head = span.slice(0, Math.max(span.indexOf('('), 0)).trim();
+  const text = stripSentenceTail.enabled ? span.replace(SENTENCE_TAIL, '') : span;
+  if (text.endsWith(')')) {
+    const head = text.slice(0, Math.max(text.indexOf('('), 0)).trim();
     return /^[A-Za-z_]\w*(\.\w+)*$/.test(head) ? [head] : [];
   }
-  if (span.includes('(')) return [];
-  if (!/[,;/]/.test(span)) {
-    return /^[A-Za-z_]\w*(\.\w+)*$/.test(span) ? [span] : [];
+  if (text.includes('(')) return [];
+  if (!/[,;/]/.test(text)) {
+    return /^[A-Za-z_]\w*(\.\w+)*$/.test(text) ? [text] : [];
   }
-  const segments = span.split(/[,;/]+/).map((part) => part.trim());
+  const segments = text.split(/[,;/]+/).map((part) => part.trim()).filter(Boolean);
   return segments.every((part) => /^[A-Za-z_]\w*(\.\w+)*$/.test(part)) ? segments : [];
 }
 
