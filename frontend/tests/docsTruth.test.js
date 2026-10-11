@@ -251,6 +251,16 @@ const canonicalHashes = new Set();
   else if (value && typeof value === 'object') for (const child of Object.values(value)) collect(child);
 })(MORPHEUS_PUBLIC_REGISTRY);
 
+// MEASUREMENT BOUNDARY. The patterns below and in the ratchet read INLINE-CODE SPANS only: a call
+// inside `backticks` is a name reference, and the same call written as raw code inside a fenced block
+// is not. That is how docs/TRANSACTION_FLOW.md and docs/TRANSACTION_LAYOUTS.md carried 33 dead names
+// past this ratchet until CU-202 deleted them (DS-CU-202-20261009.md finding F3, re-filed as
+// RV-DSCU202R1-r1 minor), so wherever the fenced measurement is absent this count is a FLOOR, not
+// the repository's drift. Row CU-210 owns that measurement and separates a fenced claim from a
+// fenced mention (DS-CU-210-20261009.md); it reads fences, it does not widen this reader. The test
+// "CU-202: the ratchet reads inline-code spans and declares the boundary it does not cross" holds
+// both halves of this note, and holds this note itself: delete it and that test fails.
+
 function codeSpans(line) {
   const spans = [];
   for (const match of line.matchAll(/`([^`]+)`/g)) spans.push(match[1].trim());
@@ -379,11 +389,13 @@ test('CU-202: the ratchet reads inline-code spans and declares the boundary it d
     ['executeLegacyControlThing'],
     'the same name inside an inline span must be read, or the declared boundary is not where the guard reads');
   // The declaration, at the measurement site: deleting it has to fail here rather than silently widen
-  // the ratchet's claim to be the repository's drift.
+  // the ratchet's claim to be the repository's drift. The note is matched with its comment markers
+  // and line wrapping normalised, so reflowing it is free and removing it is not.
   const declaration = read('frontend/tests/docsTruth.test.js').match(/\/\/ MEASUREMENT BOUNDARY[\s\S]*?(?=\n\n)/);
   assert.ok(declaration, 'the guard must declare the inline-span measurement boundary where it measures (DS-CU-202 F3)');
-  assert.match(declaration[0], /inline-code spans only/, 'the declaration must state the boundary it draws');
-  assert.match(declaration[0], /CU-210/, 'the declaration must name the row that owns the fenced measurement');
+  const note = declaration[0].replace(/^\/\/ ?/gm, ' ').replace(/\s+/g, ' ');
+  assert.match(note, /INLINE-CODE SPANS only/i, 'the declaration must state the boundary it draws');
+  assert.match(note, /CU-210/, 'the declaration must name the row that owns the fenced measurement');
 });
 
 test('CU-163: the current-runtime documents state only what the code and the deployed artifacts decide', () => {
