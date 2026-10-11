@@ -1818,8 +1818,8 @@ const R3_SHAPES = [
     reported: R3_CONTROL_NAME,
   },
   {
-    rule: 'a block comment that opens on one line and closes on a later one is one comment',
-    append: r3Fence('csharp', `var note = /* ${R3_COMMENTED}\n  still inside the comment */ 3;\n${R3_CONTROL}`),
+    rule: 'a block comment that opens on one line and closes on a later one is one comment, and a call on the continuation line is inside it',
+    append: r3Fence('csharp', `var note = /* ${R3_COMMENTED}\n  ${R3_COMMENTED} */ 3;\n${R3_CONTROL}`),
     silent: R3_COMMENTED_NAME,
     reported: R3_CONTROL_NAME,
   },
