@@ -368,18 +368,27 @@ function shapedLikeEntrypoint(name) {
 //     so the canonical spelling of every exported member is exactly the class the shape rule
 //     drops. `transfer` and `forward` are deployed ABI members this oracle never looked at.
 //
-// The widening is the build's own naming rule, read as a rule rather than enumerated: a
-// lowercase-initial, capital-bearing (camelCase) identifier is the spelling `Helper.GetDisplayName`
-// produces for an exported member (DS-CU-212, DEC-DS-6), so it is a name the oracle must READ.
-// Reading it is not the same as reporting it: `isLiveName` still decides, and `transfer` and
-// `forward` are live and stay unreported.
+// The widening has two halves, both read as RULES rather than as lists of names:
 //
-// The wrapper below exists so the kill controls can switch the widening OFF and show the planted
-// drifts surviving. A rule that cannot be removed cannot be shown to be the thing doing the work.
+//   1. the build's own naming rule: a lowercase-initial, capital-bearing (camelCase) identifier is
+//      the spelling `Helper.GetDisplayName` produces for an exported member (DS-CU-212, DEC-DS-6);
+//   2. the artefacts' own vocabulary: a name a pinned manifest exports is readable in that exact
+//      spelling, whatever its shape - 58 of the 246 ABI names are neither shape-readable nor
+//      camelCase (`transfer`, `forward`, `admin`, `update`, `verify`, `register`, `rotate` and the
+//      45 capital-initial event names), and the shape rule dropped every one of them before the
+//      liveness rule could see it. That is the class the review's mutant landed in: it planted
+//      `transfer()` in a fenced diagram, `transfer` is exported by MockTransferTarget.manifest.json,
+//      and the mutant survived for a reason the review's note did not state.
+//
+// Reading a name is not reporting it: `isLiveName` still decides, so both halves report nothing by
+// themselves. The wrapper exists so the kill controls can switch the widening OFF and show the
+// planted drifts surviving. A rule that cannot be removed cannot be shown to be the thing doing the
+// work.
 const widenVocabulary = { enabled: true };
 const LOWER_CAMEL = /^[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*$/;
 function isReadableName(name) {
-  return isCallableName(name) || (widenVocabulary.enabled && LOWER_CAMEL.test(name));
+  return isCallableName(name)
+    || (widenVocabulary.enabled && (LOWER_CAMEL.test(name) || deployedAbi.has(name)));
 }
 function isCallableName(name) {
   return shapedLikeEntrypoint(name) || divergentSpellings.has(name);
@@ -1387,6 +1396,14 @@ test('CU-210: fenced blocks assert nothing the code does not, and the ratchet st
   // which the shape rule dropped without ever reaching the liveness rule.
   assert.ok(!scan.claims['docs/MULTISIG_SDK.md']?.includes('collectChildProofs'),
     'the dead call in the fenced MultiSig example is reported now; correct the document and move this name into the widening mutant');
+  // The two live ABI members the review's mutant planted. They must be READABLE (the shape rule
+  // cannot read either, which is why the oracle previously dropped them before the liveness rule)
+  // and they must not be reported, because the artifact that owns them spells them exactly. A fix
+  // that made them fail would be rejecting the build's own spelling, not reading it.
+  for (const live of ['transfer', 'forward']) {
+    assert.ok(isReadableName(live), `${live} is a deployed ABI member the vocabulary cannot read`);
+    assert.ok(isLiveName(live, 'docs/DATA_FLOW.md'), `${live} is a deployed ABI member the oracle calls dead`);
+  }
   assert.deepEqual(scan.claims, {},
     `a fenced block calls a name the repository does not define:\n${JSON.stringify(scan.claims, null, 2)}`);
   const recorded = Object.fromEntries(Object.entries(V2_FENCE_MENTIONS).map(([file, entry]) => [file, entry.names]));
