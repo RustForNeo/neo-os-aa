@@ -16,7 +16,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { MORPHEUS_PUBLIC_REGISTRY } from '../src/config/generatedMorpheusRegistry.js';
@@ -398,49 +401,486 @@ test('CU-202: the ratchet reads inline-code spans and declares the boundary it d
   assert.match(note, /CU-210/, 'the declaration must name the row that owns the fenced measurement');
 });
 
-// RV-DSCU202R1-r1 (major) filed the gitleaks range scan against the sdk-usage.md allowance. Which
-// configuration a scan reads is decided by the tree it runs in, not by the commit it scans (the
-// precedence is in the .gitleaks.toml header, and the measurement is DS-CU-202-20261009.md round 2),
-// so what a repository test can hold is the allowance's own claim: one rule, one file, one assignment
-// of one reviewed value. DS-CU-163 section 12.4 proved that shape with planted secrets in a clone;
-// here it is asserted on every run, and a wrong guess about it fails rather than passing quietly.
-test('CU-202: the gitleaks allowance stays attached to the one value it triaged', () => {
-  const block = read('.gitleaks.toml').split('[[allowlists]]').slice(1).find((entry) => entry.includes('sdk-usage'));
-  assert.ok(block, '.gitleaks.toml must carry the sdk-usage.md allowance RV-DSCU163R1-r1 triaged');
-  const field = (key) => {
-    const match = block.match(new RegExp(`${key} = (.+)`));
-    assert.ok(match, `the allowance must set ${key}`);
-    return match[1].trim();
-  };
-  const literal = (key) => {
-    const match = block.match(new RegExp(`${key} = \\[\\s*'''(.*?)'''\\s*\\]`, 's'));
-    assert.ok(match, `the allowance must set ${key} as a list of literal strings`);
-    return match[1];
-  };
-  assert.equal(field('targetRules'), '["generic-api-key"]', 'the allowance must suppress exactly one rule');
-  assert.equal(field('condition'), '"AND"', 'every clause of the allowance must have to match');
-  assert.equal(field('regexTarget'), '"line"', 'the allowance must constrain the whole line, not the matched value alone');
-  // The path half: anchored to one document, not to a directory or a file-name prefix.
-  const pathRegex = new RegExp(literal('paths'));
-  assert.ok(pathRegex.test('frontend/src/assets/docs/sdk-usage.md'), 'the allowance must reach the document it triages');
-  for (const other of ['frontend/src/assets/docs/sdk-usage.md.bak', 'docs/sdk-usage.md', 'frontend/src/assets/docs/other.md']) {
-    assert.ok(!pathRegex.test(other), `the allowance must not reach ${other}`);
+// ---------------------------------------------------------------------------------------------
+// The gitleaks configuration, held as a whole set
+//
+// RV-AAADSCU202R2-r1 (major): round two validated ONE [[allowlists]] block - the first whose text
+// mentions sdk-usage - and said nothing about the rest of the file. A second allowance block
+// carrying global paths and regexes could therefore be appended and all eight tests still passed
+// while gitleaks stopped reporting a planted secret. Round 3 measures the whole family
+// (DS-CU-202-20261009.md, "Round 3"): a second block, a global path, a global regex, a rule-level
+// allowance, a commit allowlist, a stopword, a redefined rule, a configuration reached through
+// [extend] path, an .gitleaksignore entry and a nested configuration all suppress findings, and
+// most of them also passed the round-two guard. The property is not "this block is scoped" but
+// "every suppression the scanner resolves from this repository's tree is one the review triaged"
+// (DEC-DS-9: refuse for the property, not by accident of the pattern). The declaration below is
+// that triage: the guard parses the file into suppression carriers, holds the whole set to the
+// declaration, refuses every carrier the declaration does not name - by kind and by block - and
+// binds each declared entry to one file and one value with controls derived from the repository
+// rather than from the declaration.
+//
+// The choice, stated: the guard rejects ANY allowance it did not review rather than permitting a
+// bounded set of "scoped-looking" new ones, because a scoped-looking allowance is exactly what the
+// round-one sdk-usage block was, and nothing in a block's shape distinguishes a triaged
+// suppression from an untriaged one. The cost is deliberate friction: a new triage has to be added
+// here, in the same commit, where a reviewer sees it as a change to the reviewed inventory. Values
+// are compared by value, so reformatting or re-quoting the configuration is free.
+// ---------------------------------------------------------------------------------------------
+const GITLEAKS_CONFIG = '.gitleaks.toml';
+// Every file name gitleaks resolves a configuration or an ignore set from, anywhere in the tree.
+const GITLEAKS_CONFIG_FILES = ['.gitleaks.toml', '.gitleaksignore'];
+// The keys the reviewed form of an allowance carries. Any other suppression key (`commits`,
+// `stopwords`, ...) is a lever this review did not triage and is reported rather than ignored.
+const ALLOWLIST_REVIEWED_KEYS = ['targetRules', 'condition', 'paths', 'regexTarget', 'regexes'];
+const ALLOWLIST_KNOWN_KEYS = [...ALLOWLIST_REVIEWED_KEYS, 'commits', 'stopwords'];
+// An allowance that names a line of a document is derived from that document, so the guard holds
+// the reviewed line without keeping a copy of it: `^[[:space:]]*<the line as written>[[:space:]]*$`.
+// The reviewed line is the one `const <identifier> = '...'` assignment the document carries; zero or
+// two mean the reviewed line is gone, and the set comparison below then refuses the configuration.
+// A document that re-spells the assignment is refused too, which is friction a reviewer sees rather
+// than a silent re-scope.
+function reviewedLineRegex(relative, identifier) {
+  const carried = read(relative).split('\n')
+    .filter((line) => new RegExp(`^[ \\t]*const ${identifier} = '`).test(line));
+  return carried.length === 1 ? [`^[[:space:]]*${escapeRegex(carried[0].trim())}[[:space:]]*$`] : [];
+}
+
+const reviewedAllowlists = () => [
+  {
+    id: 'morpheus-golden-envelope-keypair',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^sdk/js/tests/morpheus-envelope-roundtrip\\.unit\\.test\\.js$'],
+      regexTarget: 'match',
+      regexes: ["^GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI[A-Za-z0-9+/]{43}'$"],
+    },
+    literalPath: 'sdk/js/tests/morpheus-envelope-roundtrip.unit.test.js',
+    // What gitleaks hands to the regex under regexTarget = "match": the assignment without the
+    // surrounding statement, which is the form the reviewed value was triaged in (DS-CU-163
+    // section 12.4).
+    matchOf: (line) => (line.match(/\bGOLDEN_PRIVATE_KEY_PKCS8 = '[^']*'/) || [])[0],
+    // The declared boundary, asserted in both directions: the identifier, the DER prefix and the
+    // width are pinned; the 43 characters of key material are not, because pinning them would copy
+    // a private key into the guard. Another identifier, another prefix or another width is
+    // reported; a different key under the reviewed identifier is allowed on purpose.
+    accepts: [`GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI${'A'.repeat(43)}'`],
+    rejects: [
+      { why: 'the same key material under a different identifier', line: `GOLDEN_OTHER_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI${'A'.repeat(43)}'` },
+      { why: 'a different DER prefix under the reviewed identifier', line: `GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIF${'A'.repeat(43)}'` },
+      { why: 'a shorter key than the reviewed width', line: `GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI${'A'.repeat(42)}'` },
+    ],
+  },
+  {
+    id: 'web3auth-verifier-hash',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^frontend/src/assets/docs/sdk-usage\\.md$'],
+      regexTarget: 'line',
+      // The reviewed line, read out of the document rather than copied here: a guard that carries
+      // the value it allows is a second copy of that value, and this branch's own canonical scan
+      // has to stay clean (DS-CU-202 round 3). An empty list means the document no longer carries
+      // the reviewed line, and the set comparison below refuses the configuration for it.
+      regexes: reviewedLineRegex('frontend/src/assets/docs/sdk-usage.md', 'web3AuthVerifierHash'),
+    },
+    literalPath: 'frontend/src/assets/docs/sdk-usage.md',
+    matchOf: (line) => line,
+    accepts: null,
+    // The reviewed line is read from the document, so these controls cannot drift from it. The
+    // value must also still be one the registry carries (the round-two control).
+    rejects: null,
+    canonicalValue: /\b0x[0-9a-fA-F]{40}\b/,
+  },
+];
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// One line of TOML, with comments removed and triple-quoted strings kept whole. `open` carries a
+// triple quote that is still open at the end of the line, so a multi-line description can never
+// hide a table header or a key from this parser.
+function scanTomlLine(raw) {
+  let code = '';
+  let open = null;
+  for (let index = 0; index < raw.length;) {
+    const three = raw.slice(index, index + 3);
+    if (three === "'''" || three === '"""') {
+      code += three;
+      open = open === three ? null : open || three;
+      index += 3;
+      continue;
+    }
+    if (!open && raw[index] === '#') break;
+    code += raw[index];
+    index += 1;
   }
-  // The value half: the reviewed assignment of the reviewed value, and nothing else on that line.
-  // gitleaks reads Go's regexp, where [[:space:]] is a POSIX class JavaScript does not carry, so that
-  // one class is translated; any other POSIX class fails this test instead of being read wrongly.
-  const regexSource = literal('regexes');
-  assert.ok(!/\[\[:(?!space:\]\])/.test(regexSource), 'the allowance uses a POSIX class this test cannot translate');
-  const lineRegex = new RegExp(regexSource.replace(/\[\[:space:\]\]/g, '[ \\t]'));
-  const covered = read('frontend/src/assets/docs/sdk-usage.md').split('\n').filter((line) => lineRegex.test(line));
-  assert.equal(covered.length, 1, `the allowance must match exactly one line of the document it triages; it matches ${covered.length}`);
-  const value = covered[0].match(/\b0x[0-9a-fA-F]{40}\b/)[0];
-  assert.ok(canonicalHashes.has(value.toLowerCase()),
-    `the allowed value ${value} must be the canonical registry hash, not a value generatedMorpheusRegistry.js does not carry`);
-  assert.ok(!lineRegex.test(covered[0].replace(value, '0x9f2c41ab77de05361c8b0e4a6d5f31c7b8a2e904')),
-    'a different value on the reviewed line must still be reported (the DS-CU-163 section 12.4 control)');
-  assert.ok(!lineRegex.test(covered[0].replace('web3AuthVerifierHash', 'otherVerifierHash')),
-    'the same value under a different identifier must still be reported');
+  return { code, open };
+}
+
+function tomlStatements(text) {
+  const statements = [];
+  let open = null;
+  for (const raw of text.split('\n')) {
+    if (open) {
+      if (raw.includes(open)) open = null;
+      statements.push('');
+      continue;
+    }
+    const scanned = scanTomlLine(raw);
+    if (scanned.open) open = scanned.open;
+    statements.push(scanned.code);
+  }
+  return statements;
+}
+
+function splitTomlList(inner) {
+  const items = [];
+  let current = '';
+  let open = null;
+  for (let index = 0; index < inner.length;) {
+    const three = inner.slice(index, index + 3);
+    if (three === "'''" || three === '"""') {
+      open = open === three ? null : open || three;
+      current += three;
+      index += 3;
+      continue;
+    }
+    if (!open && (inner[index] === '"' || inner[index] === "'")) { open = inner[index]; current += inner[index]; index += 1; continue; }
+    if (!open && inner[index] === ',') { items.push(current); current = ''; index += 1; continue; }
+    current += inner[index];
+    index += 1;
+  }
+  if (current.trim()) items.push(current);
+  return items.map((item) => item.trim()).filter((item) => item !== '');
+}
+
+// Values are compared by value, not by spelling: quoting style, whitespace, a trailing comma or a
+// different key order do not change what gitleaks suppresses, so they must not change this verdict.
+function parseTomlValue(raw) {
+  const value = raw.trim();
+  if (value.startsWith('[')) {
+    return splitTomlList(value.slice(1, value.lastIndexOf(']'))).map((item) => parseTomlValue(item));
+  }
+  for (const quote of ["'''", '"""', '"', "'"]) {
+    if (value.length >= 2 * quote.length && value.startsWith(quote) && value.endsWith(quote)) {
+      return value.slice(quote.length, value.length - quote.length);
+    }
+  }
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}
+
+// The whole file as suppression carriers. Every table the review did not triage is a carrier too:
+// [allowlist] and [[rules.allowlists]] suppress findings just as [[allowlists]] does.
+function parseGitleaksConfig(text) {
+  const parsed = {
+    topLevel: new Map(), allowlists: [], legacyTables: [], ruleBlocks: [],
+    ruleAllowlists: [], otherTables: [], extend: new Map(), extendAt: 0,
+  };
+  let current = null;
+  tomlStatements(text).forEach((line, index) => {
+    const at = index + 1;
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const header = trimmed.match(/^\[\[?([^\]]+?)\]\]?$/);
+    if (header) {
+      const name = header[1].trim();
+      if (name === 'allowlists') { current = { kind: 'allowlist', name, fields: new Map(), at }; parsed.allowlists.push(current); return; }
+      if (name === 'allowlist') { current = { kind: 'legacy', name, fields: new Map(), at }; parsed.legacyTables.push(current); return; }
+      if (name === 'rules') { current = { kind: 'rule', name, fields: new Map(), at }; parsed.ruleBlocks.push(current); return; }
+      if (name === 'rules.allowlists' || name === 'rules.allowlist') {
+        current = { kind: 'rule-allowlist', name, fields: new Map(), at };
+        parsed.ruleAllowlists.push(current);
+        return;
+      }
+      if (name === 'extend') { current = { kind: 'extend', name, fields: parsed.extend, at }; parsed.extendAt = at; return; }
+      current = { kind: 'other', name, fields: new Map(), at };
+      parsed.otherTables.push(current);
+      return;
+    }
+    const assignment = trimmed.match(/^([A-Za-z_][\w.-]*)\s*=\s*([\s\S]*)$/);
+    if (!assignment) return;
+    const [, key, rawValue] = assignment;
+    if (!current) parsed.topLevel.set(key, parseTomlValue(rawValue));
+    else current.fields.set(key, parseTomlValue(rawValue));
+  });
+  return parsed;
+}
+
+const canonicalAllowlist = (fields) => JSON.stringify(Object.fromEntries(
+  [...ALLOWLIST_KNOWN_KEYS].sort().filter((key) => fields.has(key)).map((key) => [key, fields.get(key)])));
+
+const sameAllowlist = (entry, block) => canonicalAllowlist(new Map(Object.entries(entry.fields))) === canonicalAllowlist(block.fields);
+
+const describeAllowlist = (block) => `${block.fields.has('paths') ? `paths ${JSON.stringify(block.fields.get('paths'))}` : 'no path'}`
+  + `${block.fields.has('regexes') ? `, regexes ${JSON.stringify(block.fields.get('regexes'))}` : ', no regex'}`
+  + `${block.fields.has('description') ? `, "${String(block.fields.get('description')).slice(0, 60)}"` : ''}`;
+
+// Every configuration or ignore file in the tree that is not the reviewed one. A nested
+// .gitleaks.toml is inert only while every scan is rooted at the repository; the guard refuses it
+// rather than depending on how a scan is invoked.
+function otherGitleaksFiles() {
+  const found = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const relative = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!entry.name.startsWith('.')) walk(relative); continue; }
+      if (GITLEAKS_CONFIG_FILES.includes(entry.name) && relative !== GITLEAKS_CONFIG) found.push(relative);
+    }
+  })('.');
+  return found.sort();
+}
+
+// The reported set. An empty array is the only accepting verdict; every entry names the carrier it
+// refuses and the line it sits on. Nothing here reports a boolean or an exit code, so a mutant can
+// only be killed by a violation that names it.
+function configurationViolations(text, files = otherGitleaksFiles()) {
+  const problems = [];
+  const add = (kind, detail) => problems.push(`${kind}: ${detail}`);
+  if (!text.trim()) {
+    add('missing-configuration', `${GITLEAKS_CONFIG} is absent; the reviewed allowances are not the ones a scan would apply`);
+    return problems;
+  }
+  const parsed = parseGitleaksConfig(text);
+  for (const table of parsed.legacyTables) {
+    add('legacy-singular-table', `${GITLEAKS_CONFIG}:${table.at} uses [allowlist], the pre-8.19 table this review did not triage; alone it suppresses globally, and gitleaks refuses it beside [[allowlists]]`);
+  }
+  for (const block of parsed.ruleBlocks) {
+    add('rule-override', `${GITLEAKS_CONFIG}:${block.at} redefines a rule ([[rules]]); a redefinition can drop a default rule's detection or carry its own allowance`);
+  }
+  for (const block of parsed.ruleAllowlists) {
+    add('rule-scoped-allowlist', `${GITLEAKS_CONFIG}:${block.at} attaches an allowance to one rule ([${block.name}]), a placement this review did not triage`);
+  }
+  for (const table of parsed.otherTables) {
+    add('unknown-table', `${GITLEAKS_CONFIG}:${table.at} carries [${table.name}], which the reviewed configuration does not`);
+  }
+  for (const [key, value] of parsed.topLevel) {
+    if (['minVersion', 'maxVersion', 'title', 'description'].includes(key)) continue;
+    add('unreviewed-key', `${GITLEAKS_CONFIG} sets the top-level ${key} = ${JSON.stringify(value)}, which the reviewed configuration does not`);
+  }
+  if (parsed.extend.has('path')) {
+    add('extend-path', `${GITLEAKS_CONFIG}:${parsed.extendAt} reaches another configuration through [extend] path = ${JSON.stringify(parsed.extend.get('path'))}; that file is outside this guard's inventory`);
+  }
+  if (!parsed.extend.has('useDefault')) {
+    add('defaults-missing', `${GITLEAKS_CONFIG} does not set [extend] useDefault = true; the default rules are the detection this configuration must keep`);
+  } else if (parsed.extend.get('useDefault') !== true) {
+    add('defaults-disabled', `${GITLEAKS_CONFIG}:${parsed.extendAt} sets [extend] useDefault = ${JSON.stringify(parsed.extend.get('useDefault'))}; the default rules are the detection this configuration must keep`);
+  }
+  const remaining = [...reviewedAllowlists()];
+  parsed.allowlists.forEach((block) => {
+    for (const key of block.fields.keys()) {
+      if (key === 'description' || ALLOWLIST_REVIEWED_KEYS.includes(key)) continue;
+      add('unreviewed-field', `${GITLEAKS_CONFIG}:${block.at} sets ${key} inside a [[allowlists]] block; the reviewed form carries only ${ALLOWLIST_REVIEWED_KEYS.join(', ')}`);
+    }
+    const at = remaining.findIndex((entry) => sameAllowlist(entry, block));
+    if (at === -1) {
+      add('unreviewed-allowlist', `${GITLEAKS_CONFIG}:${block.at} carries a [[allowlists]] block (${describeAllowlist(block)}) that is not one of the ${reviewedAllowlists().length} allowances this review triaged`);
+    } else {
+      remaining.splice(at, 1);
+    }
+  });
+  for (const entry of remaining) {
+    add('missing-allowlist', `${GITLEAKS_CONFIG} does not carry the reviewed ${entry.id} allowance as reviewed; every suppression the scanner applies must be one the review triaged`);
+  }
+  for (const file of files) {
+    add('extra-configuration', `${file} is a gitleaks configuration or ignore file outside the reviewed ${GITLEAKS_CONFIG}`);
+  }
+  return problems;
+}
+
+const violationKinds = (problems) => [...new Set(problems.map((problem) => problem.split(':')[0]))].sort();
+
+const configurationProblems = () => configurationViolations(exists(GITLEAKS_CONFIG) ? read(GITLEAKS_CONFIG) : '');
+
+// The reviewed allowances, each held to one file and one value, with both directions of that
+// boundary asserted. DS-CU-163 section 12.4 established the shape with planted secrets in a clone;
+// here it runs against the repository copy itself, for every entry rather than for one.
+test('CU-202: every reviewed allowance stays attached to the one value it triaged', () => {
+  assert.ok(reviewedAllowlists().length > 0, 'the reviewed allowance inventory must not be empty');
+  for (const entry of reviewedAllowlists()) {
+    const where = entry.id;
+    assert.equal(entry.fields.targetRules.length, 1, `${where}: the allowance must suppress exactly one rule`);
+    assert.equal(entry.fields.condition, 'AND', `${where}: every clause of the allowance must have to match`);
+    assert.ok(['line', 'match'].includes(entry.fields.regexTarget), `${where}: the allowance must constrain a reviewed target, not ${entry.fields.regexTarget}`);
+    // The path half: one file, named literally, with no pattern power and no second match anywhere
+    // in the tree. A wildcard, a missing anchor or a prefix match breaks the equality below.
+    assert.equal(entry.fields.paths.length, 1, `${where}: the allowance must name exactly one path`);
+    assert.equal(entry.fields.paths[0], `^${escapeRegex(entry.literalPath)}$`,
+      `${where}: the path clause must be the literal path and nothing else`);
+    const pathRegex = new RegExp(entry.fields.paths[0]);
+    const reached = tracked.filter((file) => pathRegex.test(file));
+    assert.deepEqual(reached, [entry.literalPath], `${where}: the path clause must reach exactly the one file it triages`);
+    // The value half: one anchored regex, matching the reviewed assignment in its own document.
+    // gitleaks reads Go's regexp, where [[:space:]] is a POSIX class JavaScript does not carry, so
+    // that one class is translated; any other POSIX class fails here instead of being read wrongly.
+    assert.equal(entry.fields.regexes.length, 1, `${where}: the allowance must carry exactly one value regex`);
+    const source = entry.fields.regexes[0];
+    assert.match(source, /^\^[\s\S]*\$$/, `${where}: the value regex must be anchored at both ends`);
+    assert.ok(!/\[\[:(?!space:\]\])/.test(source), `${where}: the allowance uses a POSIX class this test cannot translate`);
+    const pattern = new RegExp(source.replace(/\[\[:space:\]\]/g, '[ \\t]'));
+    const matchesLine = (line) => {
+      const target = entry.matchOf(line);
+      return typeof target === 'string' && pattern.test(target);
+    };
+    const covered = read(entry.literalPath).split('\n').filter(matchesLine);
+    assert.equal(covered.length, 1, `${where}: the allowance must match exactly one line of the document it triages; it matches ${covered.length}`);
+    if (entry.canonicalValue) {
+      const value = covered[0].match(entry.canonicalValue)[0];
+      assert.ok(canonicalHashes.has(value.toLowerCase()),
+        `${where}: the allowed value ${value} must be the canonical registry hash, not a value generatedMorpheusRegistry.js does not carry`);
+    }
+    for (const accepted of entry.accepts || [covered[0]]) {
+      assert.ok(matchesLine(accepted), `${where}: the allowance must still cover the assignment it triages`);
+    }
+    const rejected = entry.rejects || [
+      { why: 'a different value on the reviewed line (the DS-CU-163 section 12.4 control)', line: covered[0].replace(/\b0x[0-9a-fA-F]{40}\b/, '0x9f2c41ab77de05361c8b0e4a6d5f31c7b8a2e904') },
+      { why: 'the same value under a different identifier', line: covered[0].replace('web3AuthVerifierHash', 'otherVerifierHash') },
+    ];
+    for (const control of rejected) {
+      assert.ok(!matchesLine(control.line), `${where}: ${control.why} must still be reported`);
+    }
+  }
+});
+
+test('CU-202: the gitleaks configuration carries the reviewed allowance set and nothing else', () => {
+  const problems = configurationProblems();
+  assert.deepEqual(problems, [], `the gitleaks configuration carries suppressions the review did not triage:\n${problems.join('\n')}`);
+});
+
+// One mutant per widening shape, taken from the reviewed text itself. Each is refused by a
+// violation that names the shape it adds, and the assertion is on the reported set, so no kill is
+// incidental and none is read off an exit code.
+test('CU-202: every widening of the gitleaks configuration is refused by the shape it adds', () => {
+  const base = read(GITLEAKS_CONFIG);
+  const appended = (text) => `${base}\n${text}`;
+  // Literal replacement, every occurrence: the reviewed value appears in the block's comment as
+  // well as in its regex, and a mutant that only rewrote the comment would not be a mutant.
+  const replaced = (from, to) => base.split(from).join(to);
+  const sdkBlock = base.split('[[allowlists]]').find((entry) => entry.includes('sdk-usage'));
+  assert.ok(sdkBlock, 'the reviewed sdk-usage allowance must be in the configuration for these mutants to mean anything');
+  const inSdkBlock = (from, to) => base.replace(sdkBlock, () => sdkBlock.split(from).join(to));
+  // A mutant that removes a whole field of the reviewed block, addressed by its key rather than by
+  // its value, so this test carries no copy of the value the allowance triages.
+  const withoutSdkField = (key) => base.replace(sdkBlock, () => sdkBlock.split('\n')
+    .filter((line) => !line.trimStart().startsWith(`${key} = `)).join('\n'));
+  const shapes = [
+    { name: 'control: the reviewed configuration', text: base, kinds: [] },
+    { name: 'a second allowance block, global on paths and regexes', text: appended("\n[[allowlists]]\ndescription = \"mutant: a global allowance\"\npaths = ['''.*''']\nregexes = ['''.*''']\n"), kinds: ['unreviewed-allowlist'], names: 'a global allowance' },
+    { name: 'a second allowance block, global path only', text: appended("\n[[allowlists]]\ndescription = \"mutant: a global path\"\npaths = ['''.*''']\n"), kinds: ['unreviewed-allowlist'], names: 'a global path' },
+    { name: 'a second allowance block, global regex only', text: appended("\n[[allowlists]]\ndescription = \"mutant: a global regex\"\nregexes = ['''.*''']\n"), kinds: ['unreviewed-allowlist'], names: 'a global regex' },
+    { name: 'a second allowance block, one rule named but a global regex', text: appended("\n[[allowlists]]\ndescription = \"mutant: rule-scoped global regex\"\ntargetRules = [\"generic-api-key\"]\nregexes = ['''.*''']\n"), kinds: ['unreviewed-allowlist'], names: 'rule-scoped global regex' },
+    { name: 'a second allowance block, an empty path regex', text: appended("\n[[allowlists]]\ndescription = \"mutant: empty path\"\npaths = ['''''' ]\n"), kinds: ['unreviewed-allowlist'], names: 'empty path' },
+    { name: 'a commit allowlist', text: appended("\n[[allowlists]]\ndescription = \"mutant: commit allowlist\"\ncommits = [\"a64f88968d43fb7daca25ecd2f6965e96d194c59\"]\n"), kinds: ['unreviewed-allowlist', 'unreviewed-field'], names: 'commits inside a [[allowlists]] block' },
+    { name: 'a stopword allowance', text: appended("\n[[allowlists]]\ndescription = \"mutant: stopword\"\ntargetRules = [\"generic-api-key\"]\nstopwords = [\"8f3a9c2b\"]\n"), kinds: ['unreviewed-allowlist', 'unreviewed-field'], names: 'stopwords inside a [[allowlists]] block' },
+    { name: 'a decoy block that names sdk-usage and is placed first', text: replaced('[[allowlists]]', "[[allowlists]]\ndescription = \"mutant: sdk-usage decoy\"\npaths = ['''.*''']\nregexes = ['''.*''']\n\n[[allowlists]]"), kinds: ['unreviewed-allowlist'], names: 'sdk-usage decoy' },
+    { name: 'the pre-8.19 singular table, alone', text: "minVersion = \"v8.30.1\"\n\n[extend]\nuseDefault = true\n\n[allowlist]\ndescription = \"mutant: legacy\"\npaths = ['''.*''']\nregexes = ['''.*''']\n", kinds: ['legacy-singular-table', 'missing-allowlist'], names: '[allowlist], the pre-8.19 table' },
+    { name: 'a rule redefinition that can never match', text: appended("\n[[rules]]\nid = \"generic-api-key\"\ndescription = \"mutant: rule redefinition\"\nregex = '''nevermatches'''\n"), kinds: ['rule-override'], names: 'redefines a rule' },
+    { name: 'a rule-scoped allowance under a new rule', text: appended("\n[[rules]]\nid = \"mutant-rule\"\ndescription = \"mutant: rule scope\"\nregex = '''apiKey'''\n[[rules.allowlists]]\nregexes = ['''.*''']\n"), kinds: ['rule-override', 'rule-scoped-allowlist'], names: '[rules.allowlists]' },
+    { name: 'a configuration reached through [extend] path', text: replaced('useDefault = true', 'path = "cu202-extra.toml"'), kinds: ['defaults-missing', 'extend-path'], names: '[extend] path' },
+    { name: 'the default rules switched off', text: replaced('useDefault = true', 'useDefault = false'), kinds: ['defaults-disabled'], names: 'useDefault' },
+    { name: 'an .gitleaksignore file', text: base, files: ['.gitleaksignore'], kinds: ['extra-configuration'], names: '.gitleaksignore' },
+    { name: 'a nested configuration', text: base, files: ['frontend/.gitleaks.toml'], kinds: ['extra-configuration'], names: 'frontend/.gitleaks.toml' },
+    { name: 'an unknown top-level key', text: replaced('minVersion = "v8.30.1"', 'minVersion = "v8.30.1"\nkeywords = ["mutant"]'), kinds: ['unreviewed-key'], names: 'keywords' },
+    { name: 'an unknown table', text: appended("\n[[mutant-table]]\ndescription = \"mutant: unknown table\"\n"), kinds: ['unknown-table'], names: 'mutant-table' },
+    { name: 'a broader value regex inside the reviewed block', text: inSdkBlock("const web3AuthVerifierHash = '", "const \\w+ = '"), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'web3auth-verifier-hash' },
+    { name: 'a second target rule inside the reviewed block', text: inSdkBlock('targetRules = ["generic-api-key"]', 'targetRules = ["generic-api-key", "stripe-access-token"]'), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'web3auth-verifier-hash' },
+    { name: 'a different regexTarget inside the reviewed block', text: inSdkBlock('regexTarget = "line"', 'regexTarget = "match"'), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'web3auth-verifier-hash' },
+    { name: 'OR instead of AND inside the reviewed block', text: inSdkBlock('condition = "AND"', 'condition = "OR"'), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'web3auth-verifier-hash' },
+    { name: 'the reviewed block without its path', text: withoutSdkField('paths'), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'no path' },
+    { name: 'the reviewed block without its value regex', text: withoutSdkField('regexes'), kinds: ['missing-allowlist', 'unreviewed-allowlist'], names: 'no regex' },
+  ];
+  for (const shape of shapes) {
+    const problems = configurationViolations(shape.text, shape.files || []);
+    const kinds = violationKinds(problems);
+    assert.deepEqual(kinds, [...shape.kinds].sort(), `${shape.name}: the configuration must be refused for the shapes it adds, and for nothing else:\n${problems.join('\n') || '(nothing reported)'}`);
+    if (shape.names) {
+      assert.ok(problems.some((problem) => problem.includes(shape.names)),
+        `${shape.name}: the refusal must name what it refuses (${shape.names}):\n${problems.join('\n')}`);
+    }
+  }
+});
+
+// The scanner-level direction of the same rule, on a throwaway repository: the reviewed
+// configuration still reports a secret nothing triaged, and the widening that would silence it is
+// refused by the guard rather than by an exit code. Skipped, explicitly, where gitleaks is absent.
+test('CU-202: a planted secret survives the reviewed configuration, and the widening that silences it is refused', (t) => {
+  let available = true;
+  try {
+    execFileSync('gitleaks', ['version'], { stdio: 'pipe' });
+  } catch {
+    available = false;
+  }
+  if (!available) return t.skip('gitleaks is not on PATH: the scanner-level direction of this rule is unmeasured in this run');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cu202-gitleaks-'));
+  const git = (...args) => execFileSync('git', args, { cwd: scratch, stdio: 'pipe' });
+  const write = (relative, body) => {
+    fs.mkdirSync(path.dirname(path.join(scratch, relative)), { recursive: true });
+    fs.writeFileSync(path.join(scratch, relative), body);
+  };
+  try {
+    git('init', '--quiet');
+    git('config', 'user.name', 'CU-202');
+    git('config', 'user.email', 'cu-202@localhost');
+    write(GITLEAKS_CONFIG, read(GITLEAKS_CONFIG));
+    git('add', '-A');
+    git('commit', '--quiet', '-m', 'base');
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim();
+    // Synthetic, high-entropy key material: it is what the rules report, so every direction below
+    // measures a real suppression rather than a value no rule would have found.
+    const material = 'Zq7xK2mP9vL4nR8tB3wY6cH1jF5dG0sA9bC2eD4fGh6';
+    assert.equal(material.length, 43, 'the probe material must be the 43 characters the reviewed keypair allowance pins');
+    // Derived, not written down, so this guard carries no scanner-visible secret of its own: the
+    // branch's canonical scan is a gate, and a test that plants a literal secret in itself reds it.
+    const probeSecret = createHash('sha256').update('CU-202 round 3 probe').digest('hex').slice(0, 48);
+    assert.equal(probeSecret.length, 48, 'the probe secret must be the 48 characters the rule reports');
+    // A secret nothing triaged; the reviewed identifier carrying that material; and the same
+    // material under an identifier the reviewed allowance does not name.
+    write('frontend/src/config/probe.js', `export const apiKey = "${probeSecret}";\n`);
+    write('sdk/js/tests/morpheus-envelope-roundtrip.unit.test.js', `const GOLDEN_PRIVATE_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI${material}';\n`);
+    write('frontend/src/config/probe-key.js', `const GOLDEN_OTHER_KEY_PKCS8 = 'MC4CAQAwBQYDK2VuBCIEI${material}';\n`);
+    git('add', '-A');
+    git('commit', '--quiet', '-m', 'plant');
+    const plant = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim();
+    const scan = (label, config) => {
+      write(GITLEAKS_CONFIG, config);
+      const report = path.join(scratch, `${label}.json`);
+      // The canonical invocation this repository documents; the verdict is read from the report
+      // rather than from the exit code, because a scan that fails writes no report at all.
+      try {
+        execFileSync('gitleaks', ['git', '--redact', '--no-banner', '--exit-code', '1', `--log-opts=${base}..${plant}`, '--report-format', 'json', `--report-path=${report}`, '.'], { cwd: scratch, stdio: 'pipe' });
+      } catch { /* a finding is the expected outcome of the reviewed run */ }
+      assert.ok(fs.existsSync(report), `${label}: the scan produced no report`);
+      return (JSON.parse(fs.readFileSync(report, 'utf8')) || []).map((found) => `${found.RuleID} ${found.File}`).sort();
+    };
+    const reviewedConfig = read(GITLEAKS_CONFIG);
+    // Both directions of the reviewed keypair allowance: the shape it triaged is not reported, and
+    // the same material under another identifier is.
+    assert.deepEqual(scan('reviewed', reviewedConfig), [
+      'generic-api-key frontend/src/config/probe-key.js',
+      'generic-api-key frontend/src/config/probe.js',
+    ], 'the reviewed configuration must still report every secret it did not triage');
+    // The direction above is only a suppression if the same line is reported without the
+    // allowance: the block is removed and the scan must find it.
+    const withoutKeypair = reviewedConfig.split('[[allowlists]]')
+      .filter((block, index) => index === 0 || !block.includes('morpheus-envelope-roundtrip')).join('[[allowlists]]');
+    assert.ok(!withoutKeypair.includes('morpheus-envelope-roundtrip'), 'the control must actually remove the reviewed keypair allowance');
+    assert.deepEqual(scan('without-keypair', withoutKeypair), [
+      'generic-api-key frontend/src/config/probe-key.js',
+      'generic-api-key frontend/src/config/probe.js',
+      'generic-api-key sdk/js/tests/morpheus-envelope-roundtrip.unit.test.js',
+    ], 'without the reviewed allowance the fixture line must be reported; otherwise the suppression above proves nothing');
+    // The widening the reviewer appended. It silences the scan, which is why the guard has to
+    // refuse it: the refusal is asserted on the reported set, and the harm is measured here.
+    const widened = `${reviewedConfig}\n[[allowlists]]\ndescription = "reviewer probe: a global allowance"\npaths = ['''.*''']\nregexes = ['''.*''']\n`;
+    assert.deepEqual(scan('widened', widened), [], 'the widening must be what silences the scan; if it is not, this measurement is not the reviewer\'s');
+    const problems = configurationViolations(widened, []);
+    assert.equal(violationKinds(problems).includes('unreviewed-allowlist'), true,
+      `the guard must refuse the configuration that silences the scan:\n${problems.join('\n') || '(nothing reported)'}`);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test('CU-163: the current-runtime documents state only what the code and the deployed artifacts decide', () => {
