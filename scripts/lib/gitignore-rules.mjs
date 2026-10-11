@@ -13,15 +13,29 @@
 // Supported semantics are git's, deliberately limited to what ".gitignore"
 // defines: whole-line comments, blank lines, "!" negation, "\" escaping, a
 // trailing "/" for directories, a leading or embedded "/" for anchoring, "*",
-// "?", "[...]" character classes and "**". A pattern's own file position is
+// "?", "[...]" character classes (including "[!...]" and "[^...]" negation,
+// ranges and "[:name:]" classes) and "**". A pattern's own file position is
 // fixed by where it was read from, and a pattern without a "/" matches the
 // basename at any depth under that directory.
 //
-// One documented divergence: git resolves a path's rules bottom-up and would
-// report a path under an ignored directory as not-ignored when a deeper
-// ".gitignore" re-includes it. This walk stops at an ignored directory, which
-// is what "git add" does. The cross-check in the hygiene test fails if the two
-// disagree anywhere in this repository.
+// Two documented divergences, both measured against git 2.50.1:
+//
+//   * git resolves a path's rules bottom-up and would report a path under an
+//     ignored directory as not-ignored when a deeper ".gitignore" re-includes
+//     it. This walk stops at an ignored directory, which is what "git add"
+//     does. The cross-check in the hygiene test fails if the two disagree
+//     anywhere in this repository.
+//   * a "[" that never closes, or that closes to an empty class ("a[]b"), makes
+//     git stop reading the pattern at all, so such a pattern excludes nothing.
+//     This reader answers that the same way. What it does not reproduce is one
+//     degenerate class: wildmatch reads a "-" that opens a class body as the
+//     start of an unterminated range, so "[!-a]" excludes "a" and "-" while
+//     this reader reads "-" as an ordinary member.
+//   * "git check-ignore" answers "foo/" as ignored under the pattern "foo/**",
+//     while "git add" does not exclude the directory "foo" itself: only what is
+//     below it. This reader follows "git add", because excluding what would be
+//     committed is the question the hygiene gate asks. Every documented shape
+//     of "[...]" and "**" is otherwise answered as git answers it.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -48,41 +62,58 @@ export function parseIgnoreLine(rawLine) {
  */
 export function compileIgnorePattern(pattern) {
   const directoryOnly = pattern.endsWith("/");
-  let body = directoryOnly ? pattern.replace(/\/+$/, "") : pattern;
+  const body = directoryOnly ? stripTrailingSlashes(pattern) : pattern;
   if (body === "") return null;
 
   let negated = false;
-  if (body.startsWith("!") && body.length > 1) {
+  let remainder = body;
+  if (remainder.startsWith("!") && remainder.length > 1) {
     negated = true;
-    body = body.slice(1);
+    remainder = remainder.slice(1);
   }
 
   // A leading slash anchors the pattern and is not part of it.
-  const leadingSlash = body.startsWith("/");
-  if (leadingSlash) body = body.slice(1);
-  if (body === "") return null;
+  const leadingSlash = remainder.startsWith("/");
+  if (leadingSlash) remainder = remainder.slice(1);
+  if (remainder === "") return null;
 
   // A slash anywhere but at the end anchors the pattern to the ".gitignore"
   // file's directory; without one it matches a basename at any depth, which is
-  // expressed as an optional leading path.
-  const anchored = leadingSlash || body.includes("/");
-  const segments = body.split("/");
-  // A leading "**/" stands for zero or more leading directories; inside the
-  // pattern a lone "**" spans them. Every other segment is a plain glob.
-  const rest = segments[0] === "**" && segments.length > 1 ? segments.slice(1) : segments;
-  const prefix = anchored ? (segments[0] === "**" && segments.length > 1 ? "(?:.*/)?" : "") : "(?:.*/)?";
+  // expressed as an optional leading path. A leading "**/" is unanchored in the
+  // same way, so it takes the same prefix and writes its own separators.
+  const anchored = leadingSlash || remainder.includes("/");
+  const segments = remainder.split("/");
+  const leadingWildcard = segments[0] === "**" && segments.length > 1;
+  const rest = leadingWildcard ? segments.slice(1) : segments;
+  const prefix = !anchored || leadingWildcard ? "(?:.*/)?" : "";
+
   const source = ["(?:"];
+  // True while the last emitted segment already ended with the separator the
+  // next one needs, so that separator must not be written twice.
+  let separatorWritten = false;
   rest.forEach((segment, index) => {
     if (segment === "**") {
-      // "a/**/b" matches "a/b" and everything between them; a trailing "**"
-      // matches every child of the directory before it, not the directory.
-      if (index === 0 && rest.length === 1) source.push(".*");
-      else if (index === rest.length - 1) source.push("(?:/[^/]+)*");
-      else source.push("(?:/[^/]+)*/");
+      if (rest.length === 1) {
+        // A sole "**" matches every path, the root included.
+        source.push(".*");
+        separatorWritten = false;
+      } else if (index === rest.length - 1) {
+        // A trailing "**" names what is inside the directory before it, never
+        // that directory or the pattern's own prefix, so it requires at least
+        // one name after its separator.
+        source.push("/[^/]+(?:/.*)?");
+        separatorWritten = false;
+      } else {
+        // Between two other segments a "**" spans zero or more whole
+        // directories, so "a/**/b" matches "a/b" as well as "a/x/y/b".
+        source.push("(?:/[^/]+)*/");
+        separatorWritten = true;
+      }
       return;
     }
-    if (index > 0 && rest[index - 1] !== "**") source.push("/");
+    if (index > 0 && !separatorWritten) source.push("/");
     source.push(translateSegment(segment));
+    separatorWritten = false;
   });
   source.push(")");
 
@@ -94,6 +125,37 @@ export function compileIgnorePattern(pattern) {
     regex: new RegExp(`^${prefix}${source.join("")}$`),
   };
 }
+
+function stripTrailingSlashes(value) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
+}
+
+// The characters a bracket expression can add to a regular-expression class
+// without escaping. "-" is left alone so a range stays a range; "]" and "\" are
+// escaped where they appear as members.
+const LITERAL_CLASS_CHARACTERS = /[\\\]^]/;
+
+// The POSIX class names git's wildmatch accepts, with the ranges each stands
+// for. They are expanded here rather than passed through, so the reader does
+// not depend on the regular expression engine's locale.
+const POSIX_CLASSES = {
+  alnum: "0-9A-Za-z",
+  alpha: "A-Za-z",
+  ascii: "\\x00-\\x7f",
+  blank: " \\t",
+  cntrl: "\\x00-\\x1f\\x7f",
+  digit: "0-9",
+  graph: "!-~",
+  lower: "a-z",
+  print: " -~",
+  punct: "!-/:-@\\[-`{-~",
+  space: " \\t\\r\\n\\v\\f",
+  upper: "A-Z",
+  word: "0-9A-Za-z_",
+  xdigit: "0-9A-Fa-f",
+};
 
 function translateSegment(segment) {
   let out = "";
@@ -113,20 +175,105 @@ function translateSegment(segment) {
       continue;
     }
     if (character === "[") {
-      const close = segment.indexOf("]", index + 1);
-      if (close === -1) {
-        out += "\\[";
+      const parsed = parseBracketExpression(segment, index);
+      if (parsed === null) {
+        // A "[" that never closes, or that closes to an empty class, makes git
+        // stop reading the pattern at all, so the pattern matches nothing. It
+        // is never an ordinary character: "a[" does not match the file "a[".
+        out = "(?!)";
+        index = segment.length;
         continue;
       }
-      let body = segment.slice(index + 1, close);
-      index = close;
-      if (body.startsWith("!")) body = `^${body.slice(1)}`;
-      out += `[${body.replace(/[\\^\]]/g, "\\$&")}]`;
+      out += parsed.source;
+      index = parsed.end;
       continue;
     }
     out += escapeRegExp(character);
   }
   return out;
+}
+
+/**
+ * Reads the bracket expression that starts at `start`, the way wildmatch reads
+ * it: "[!" or "[^" negates the set, a "]" directly after the opening (or after
+ * the negation) is a member and not the close, "-" is a range unless it is the
+ * last member, and "[:name:]" is a POSIX class. Returns null when the
+ * expression is never closed, which git treats as a literal "[".
+ */
+function parseBracketExpression(segment, start) {
+  let index = start + 1;
+  let negated = false;
+  if (segment[index] === "!" || segment[index] === "^") {
+    negated = true;
+    index += 1;
+  }
+  // The member of a class is terminated by "]", except when the class never
+  // closes: git then treats the "]" as an ordinary member, and a class such as
+  // "[a-]" is the range from "a" to "]" rather than the letters "a" and "-".
+  const bodyEnd = segment.lastIndexOf("]");
+  const parts = [];
+  // The member just read. It stays pending because the next character can turn
+  // it into the start of a range, and a range replaces its first character.
+  let pending = null;
+  let openRange = false; // True while "pending" is the start of a "x-y" range.
+  let first = true;
+  for (; index < segment.length; index += 1) {
+    const character = segment[index];
+    if (character === "]" && !first && index === bodyEnd) break;
+    first = false;
+    if (character === "[" && segment[index + 1] === ":") {
+      const close = segment.indexOf(":]", index + 2);
+      if (close !== -1) {
+        const name = segment.slice(index + 2, close).toLowerCase();
+        const expansion = POSIX_CLASSES[name];
+        if (expansion !== undefined) {
+          if (pending !== null) parts.push(pending);
+          pending = null;
+          openRange = false;
+          parts.push(expansion);
+          // The loop advances once more, which lands on the "]" that closes
+          // "[:name:]".
+          index = close + 1;
+          continue;
+        }
+      }
+    }
+    // "-" is a range only between two characters; at the end of the class, or
+    // right after another "-", it is an ordinary member.
+    if (
+      character === "-"
+      && pending !== null
+      && !openRange
+      && index + 1 < segment.length
+      && !(segment[index + 1] === "]" && index + 1 === bodyEnd)
+    ) {
+      pending = `${pending}-${segment[index + 1]}`;
+      openRange = true;
+      // The range consumed the character after the "-" as well.
+      index += 1;
+      continue;
+    }
+    if (pending !== null) parts.push(pending);
+    pending = character;
+    openRange = false;
+  }
+  if (index >= segment.length) return null;
+  if (pending !== null) parts.push(pending);
+  if (parts.length === 0) return null;
+
+  const emitted = parts
+    .map((part) => (part.length > 1 ? part : escapeClassCharacter(part)))
+    .join("");
+  // A negated class excludes the separator as well: a class is one path
+  // segment, so it can never name "/".
+  return {
+    end: index,
+    source: negated ? `[^/${emitted}]` : `[${emitted}]`,
+  };
+}
+
+function escapeClassCharacter(character) {
+  return LITERAL_CLASS_CHARACTERS.test(character) ? `\\${character}` : character;
 }
 
 function escapeRegExp(value) {
@@ -188,6 +335,13 @@ export function loadIgnoreRules(directory) {
     return cache.get(relativeDirectory);
   };
 
+  // Every ".gitignore" the walk can reach is read once, here, so an answer does
+  // not depend on the tree still being on disk: an export can be deleted after
+  // it was read, and the reader must keep answering from what it read.
+  for (const relativeFile of findIgnoreFiles(directory)) {
+    rulesAt(relativeFile === ".gitignore" ? "" : relativeFile.slice(0, -"/.gitignore".length));
+  }
+
   // Shallowest directory first: every ".gitignore" is a block of rules that
   // applies from its own directory downwards, and the last matching rule wins.
   const accumulated = (segments, includeLeafDirectory) => {
@@ -205,23 +359,30 @@ export function loadIgnoreRules(directory) {
 
   // `depth` is how many leading segments form the path the rule is being
   // applied to, which is not always the whole path: a directory rule is
-  // satisfied by naming an ancestor directory, not by naming a descendant of
-  // it ("node_modules/" ignores "node_modules/pkg/index.js" by ignoring
-  // "node_modules"). A prefix shorter than the whole path always names a
-  // directory, so a directory rule applies to it.
-  const verdictAt = (rules, segments, depth, leafIsDirectory) => {
+  // satisfied by naming an ancestor directory ("node_modules/" ignores
+  // "node_modules/pkg/index.js" by ignoring "node_modules"), while a rule that
+  // is not directory-only names one basename and so is only ever a verdict
+  // about the whole path. `directory` says whether that path is being asked
+  // about as a directory, which is what a directory rule requires. The answer
+  // names whether the last matching rule was a negation, because the walk
+  // cannot stop on a "!".
+  const verdictAt = (rules, segments, depth, directory) => {
     let verdict = false;
+    let lastRuleNegated = false;
     for (const { relativeDirectory, rule } of rules) {
-      // A prefix shorter than the whole path always names a directory, so a
-      // directory rule applies to it; only the whole path can be a plain file.
-      if (rule.directoryOnly && depth === segments.length && !leafIsDirectory) continue;
+      // A "foo/" rule names a directory that is never a plain file, so it says
+      // nothing about a path whose last segment is a file.
+      if (rule.directoryOnly && depth === segments.length && !directory) continue;
       const prefix = relativeDirectory === "" ? "" : `${relativeDirectory}/`;
       const relative = segments.slice(0, depth).join("/");
       if (prefix !== "" && !relative.startsWith(prefix)) continue;
       const candidate = prefix === "" ? relative : relative.slice(prefix.length);
-      if (rule.regex.test(candidate)) verdict = !rule.negated;
+      if (rule.regex.test(candidate)) {
+        verdict = !rule.negated;
+        lastRuleNegated = rule.negated;
+      }
     }
-    return verdict;
+    return { ignored: verdict, lastRuleNegated };
   };
 
   return {
@@ -232,9 +393,15 @@ export function loadIgnoreRules(directory) {
       if (segments.length === 0) return false;
       // A path under an ignored directory is ignored whatever its own rules
       // say; the walk mirrors the descent "git add" performs and stops there.
+      // Only a directory rule can make an ancestor ignored — a basename rule
+      // such as "[!a]*" says nothing about "a/deep" by matching "a" — and only
+      // a positive verdict stops the walk, which is how "logs/" plus
+      // "!logs/keep.txt" leaves that one file visible.
       const ancestors = segments.length - 1;
       for (let depth = 1; depth <= ancestors; depth += 1) {
-        if (verdictAt(accumulated(segments, depth), segments, depth, true)) return true;
+        const directoryRules = accumulated(segments, depth).filter(({ rule }) => rule.directoryOnly);
+        const verdict = verdictAt(directoryRules, segments, depth, true);
+        if (verdict.ignored && !verdict.lastRuleNegated) return true;
       }
       // The path itself: its own directory's rules apply to it, and to a
       // directory also the rules of the ".gitignore" that directory holds.
@@ -243,7 +410,7 @@ export function loadIgnoreRules(directory) {
         segments,
         segments.length,
         isDirectory,
-      );
+      ).ignored;
     },
     /** The subset of `paths` the rules exclude, as a Set. */
     ignoredSet(paths) {

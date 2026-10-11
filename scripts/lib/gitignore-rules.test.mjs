@@ -8,9 +8,17 @@
 // throwaway repository. A reader that answered "ignored" for everything, or
 // "not ignored" for everything, fails here before it can weaken the hygiene
 // gate.
+//
+// The hygiene test's cross-check can only compare the paths this repository
+// happens to contain, so a pattern no current path exercises can be read
+// wrongly and still pass there: the reader is the only oracle in a clean
+// "git archive" export, which is the environment the review service mandates.
+// The `ORACLE_CASES` table below is therefore chosen for what this tree does
+// NOT contain, and each pattern is measured in a throwaway repository of its
+// own so that no pattern can mask another.
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -227,5 +235,178 @@ test("a rule that matches nothing cannot silently pass", () => {
     assert.equal(rules.isIgnored("nothing-matches-this"), true, "the rule it does name still matches");
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+// Each entry is [pattern, cases] and each case is [path, isDirectory, ignored].
+// One of these patterns produced a wrong answer that no path in this tree could
+// expose, which is the defect this table exists to close: the negated classes
+// were inverted, a trailing "/**/" ignored the wrong paths, a trailing "/**"
+// named the directory it was supposed to exclude, and an unclosed "[" was read
+// as a literal character where git stops reading the pattern.
+const ORACLE_CASES = [
+  // "[!...]" and "[^...]" select the characters the class excludes, and both
+  // spellings are valid.
+  ["[!a].txt", [["b.txt", false, true], ["a.txt", false, false], ["c.txt", false, true]]],
+  ["[^a].txt", [["b.txt", false, true], ["a.txt", false, false]]],
+  ["[!abc].txt", [["d.txt", false, true], ["a.txt", false, false]]],
+  ["[!a-c].txt", [["d.txt", false, true], ["b.txt", false, false], ["-", false, false]]],
+  ["x[!y]z", [["xaz", false, true], ["xyz", false, false]]],
+  ["x[^y]z", [["xaz", false, true], ["xyz", false, false]]],
+  ["[!.]*.txt", [["a.txt", false, true], [".hidden.txt", false, false]]],
+  ["[!0-9]*", [["a1", false, true], ["1a", false, false]]],
+  // A class is one path segment, so a negated class must not match the
+  // separator; a pattern without a slash still answers about the basename, so
+  // "[!a]*" ignores "aa/deep" through its last segment.
+  ["[!a]*", [["deep", false, true], ["aa/deep", false, true], ["ab", false, false]]],
+  // A class is closed by its last "]": an earlier "]" is an ordinary member,
+  // and git reads a "-" in front of a member as a range.
+  ["[]]", [["]", false, true], ["a", false, false]]],
+  ["[[:digit:]].txt", [["1.txt", false, true], ["x.txt", false, false]]],
+  ["[a-c]", [["b", false, true], ["d", false, false]]],
+  ["[-a]", [["a", false, true], ["-", false, true], ["b", false, false]]],
+  // "**" in directory position spans zero or more whole directories ...
+  ["**/foo", [["foo", false, true], ["aa/foo", false, true], ["aa/bb/foo", false, true], ["foobar", false, false]]],
+  ["a/**/b", [["a/b", false, true], ["a/x/b", false, true], ["a/x/y/b", false, true], ["a/xb", false, false]]],
+  ["foo/**/bar", [["foo/bar", false, true], ["foo/x/bar", false, true], ["foo/x/y/bar", false, true]]],
+  ["lib/**/*.js", [["lib/a.js", false, true], ["lib/x/a.js", false, true], ["lib/x/y/a.js", false, true], ["lib/a.ts", false, false]]],
+  ["**/node_modules/", [["node_modules/x", false, true], ["nn/node_modules/x", false, true], ["node_modules", true, true]]],
+  // ... and a trailing "**" needs at least one name after it, so it excludes
+  // what is inside the directory before it and never that directory.
+  ["foo/**", [["foo", true, false], ["foo/x.txt", false, true], ["foo/bar/y.txt", false, true]]],
+  ["a/**", [["a", true, false], ["a/child.txt", false, true], ["a/deep/child.txt", false, true]]],
+  // A trailing "/**/" ignores what is inside foo's subdirectories and nothing
+  // else: not foo, not its direct children, and not the pattern's own prefix.
+  ["foo/**/", [
+    ["foo/bar/y.txt", false, true],
+    ["foo/x.txt", false, false],
+    ["foo/bar", true, true],
+    ["foo", true, false],
+  ]],
+  ["**/", [["dir/deep", true, true], ["dir", true, true]]],
+  // "**" alone matches every path, the root included.
+  ["**", [["z", false, true], ["z/z", false, true]]],
+  // A "[" git cannot close makes it stop reading the pattern, so the pattern
+  // matches nothing at all.
+  ["a[", [["a[", false, false], ["ab", false, false]]],
+  ["[!abc", [["a", false, false], ["[!abc", false, false]]],
+  ["a[]b", [["a[]b", false, false], ["ab", false, false]]],
+];
+
+/**
+ * One isolated repository per pattern: writes that one ".gitignore", creates
+ * every compared path, and returns git's verdicts next to a reader bound to the
+ * same rules. A directory case is created with a file below it, because that is
+ * how the name is known to be a directory, and reading the rules eagerly keeps
+ * the reader answering after the repository is removed.
+ */
+function compareWithGit(pattern, cases) {
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "gitignore-oracle-"));
+  try {
+    fs.writeFileSync(path.join(repository, ".gitignore"), `${pattern}\n`);
+    // The shape git sees must not depend on the order of the table. A path that
+    // another case needs as its parent is always a directory, whatever the case
+    // itself declared, and a name already created is never rewritten; so a case
+    // that asks about the file "z" and one that asks about "z/z" produce a
+    // directory "z" holding a file "zc" and a file "z/z", consistently.
+    const directories = new Set();
+    for (const [relative, isDirectory] of cases) {
+      if (!isDirectory) continue;
+      for (
+        let parent = path.posix.dirname(relative);
+        parent !== "." && parent !== "";
+        parent = path.posix.dirname(parent)
+      ) {
+        directories.add(parent);
+      }
+    }
+    for (const [relative, isDirectory] of cases) {
+      if (isDirectory) continue;
+      for (
+        let parent = path.posix.dirname(relative);
+        parent !== "." && parent !== "";
+        parent = path.posix.dirname(parent)
+      ) {
+        directories.add(parent);
+      }
+    }
+    for (const relative of directories) {
+      const absolute = path.join(repository, relative);
+      if (!fs.existsSync(absolute)) fs.mkdirSync(absolute, { recursive: true });
+      const marker = path.join(absolute, "child.txt");
+      if (!fs.existsSync(marker)) fs.writeFileSync(marker, "x\n");
+    }
+    for (const [relative] of cases) {
+      if (directories.has(relative)) continue;
+      const absolute = path.join(repository, relative);
+      if (fs.existsSync(absolute)) continue;
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "x\n");
+    }
+    const rules = loadIgnoreRules(repository);
+    // "check-ignore" only answers inside a repository; the index stays empty,
+    // so "--no-index" keeps the question about the ignore files alone.
+    execFileSync("git", ["-C", repository, "-c", "core.excludesFile=/dev/null", "init", "-q"], { stdio: "ignore" });
+    // Every path is asked in its bare spelling. Asking "dir/" as well would be
+    // a second question: git answers "foo/" as ignored under "foo/**" while
+    // "git add" does not exclude the directory itself, which is the property
+    // this reader implements.
+    const asked = cases.map(([relative]) => relative.replace(/\/+$/, ""));
+    const result = spawnSync(
+      "git",
+      ["-C", repository, "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "--stdin"],
+      { encoding: "utf8", input: `${asked.join("\n")}\n` },
+    );
+    if (result.error?.code === "ENOENT") return { rules, git: null };
+    if (result.status !== 0 && result.status !== 1) {
+      assert.fail(`git check-ignore failed for ${JSON.stringify(pattern)}: ${result.stderr}`);
+    }
+    const reported = new Set((result.stdout ?? "").split("\n").filter(Boolean));
+    return { rules, git: new Map(asked.map((askedPath) => [askedPath, reported.has(askedPath)])) };
+  } finally {
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+}
+
+test("the reader answers the patterns this tree does not exercise", (t) => {
+  const withoutGit = [];
+  for (const [pattern, cases] of ORACLE_CASES) {
+    const { rules, git } = compareWithGit(pattern, cases);
+
+    // The hand-written answers, which hold whether or not git is installed.
+    const disagreements = [];
+    const againstGit = [];
+    for (const [relative, isDirectory, expected] of cases) {
+      const got = rules.isIgnored(relative, isDirectory);
+      if (got !== expected) {
+        disagreements.push(`${relative} (${isDirectory ? "dir" : "file"}): reader ${got}, should be ${expected}`);
+      }
+      if (git === null) continue;
+      const asked = `${relative.replace(/\/+$/, "")}${isDirectory ? "/" : ""}`;
+      const gitSays = git.get(relative.replace(/\/+$/, ""));
+      if (gitSays !== got) {
+        againstGit.push(`${asked}: reader ${got}, git ${gitSays}`);
+      } else if (gitSays !== expected) {
+        againstGit.push(`${asked}: pinned ${expected}, git ${gitSays} (the fixture is wrong, not the reader)`);
+      }
+    }
+    assert.deepEqual(
+      disagreements,
+      [],
+      `the reader disagrees with .gitignore for ${JSON.stringify(pattern)}:\n  ${disagreements.join("\n  ")}`,
+    );
+    if (git === null) withoutGit.push(pattern);
+    else {
+      assert.deepEqual(
+        againstGit,
+        [],
+        `the reader and git disagree for ${JSON.stringify(pattern)}:\n  ${againstGit.join("\n  ")}`,
+      );
+    }
+  }
+  if (withoutGit.length > 0) {
+    // git is the oracle these cases were derived from. Without it the pinned
+    // answers still run, and the environment is named rather than implied.
+    t.diagnostic(`git was unavailable, so ${withoutGit.length} patterns ran against the pinned answers only: ${withoutGit.join(", ")}`);
   }
 });
