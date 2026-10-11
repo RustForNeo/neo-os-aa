@@ -297,6 +297,10 @@ const ORACLE_CASES = [
   ["a[", [["a[", false, false], ["ab", false, false]]],
   ["[!abc", [["a", false, false], ["[!abc", false, false]]],
   ["a[]b", [["a[]b", false, false], ["ab", false, false]]],
+  // A "-" that opens a class body is a member, and the separators the reader
+  // adds around a class body must not turn it into a range: wildmatch and this
+  // reader both exclude "b" here and neither excludes "-" or "a".
+  ["[!-a]", [["a", false, false], ["b", false, true], ["-", false, false], ["--", false, false]]],
   // A rule that names a directory excludes what is inside it whether or not it
   // is spelled with a trailing slash, because "git add" never descends into an
   // excluded directory. Every spelling of a rule is here: a plain basename, a
