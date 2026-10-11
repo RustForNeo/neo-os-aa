@@ -525,21 +525,144 @@ function isLiveName(name, file) {
 // fenced call written in the build's camelCase spelling, are both claims about the deployed
 // artifact, and the shape rule alone could not read either.
 //
-// A COMMENT is not code position, so it asserts nothing (CU-210 R2). Widening the vocabulary made
+// A COMMENT is not code position, so it asserts nothing (CU-210 R2/R3). Widening the vocabulary made
 // this visible: `// ~ paymaster.sponsorshipPolicy (time-based expiry)` in
 // docs/ETHEREUM_AA_COMPARISON.md is prose comparing two systems, and reading it as a claim invented
 // a Neo entrypoint out of an Ethereum field name. Nothing else speaks for the fenced code around it,
 // so the claim that would have silenced a real finding stays silent (DEC-DS-9).
-const LINE_COMMENT = /^(?:csharp|cs|c|javascript|js|typescript|ts|java|go|rust|solidity|swift|kotlin|scala|php|graphql)$/;
-const HASH_COMMENT = /^(?:python|py|bash|shell|sh|zsh|yaml|yml|toml|ini|dockerfile|powershell|r|ruby|perl)$/;
-function codePart(line, language) {
-  const marker = LINE_COMMENT.test(language) ? '//' : HASH_COMMENT.test(language) ? '#' : null;
-  if (marker === null) return line;
-  const at = line.indexOf(marker);
-  return at === -1 ? line : line.slice(0, at);
+//
+// The r2 rule cut ONE single-line marker out of each line on its own, which made it narrower than
+// the property it stated: a fenced `/* deadCall() */` was read as code, so a valid document failed
+// the gate. The lexer below IS the property - no comment content of either kind is a claim, in any
+// fence language the guard reads - and it says what a comment is per language, in that language's
+// own terms, instead of assuming one marker fits all of them.
+//
+// WHERE THE BOUNDARY IS, stated rather than left implicit:
+//
+//   * It models COMMENTS ONLY. A comment marker inside a string literal is not a marker, so
+//     `'https://host/path'` is code and does not cut the line; but the string's CONTENT is returned
+//     as code as well, because three of the claim rules below deliberately read a name out of a
+//     string (`operation: 'updateVerifier'`, `'name', CallFlags`, `DisplayName("name")`). The guard
+//     cannot tell a string from a claim, and it is not "fixed" here to pretend otherwise: a lexer
+//     that made strings opaque would silently DROP those claims, which is a narrowed rule wearing a
+//     fix's clothes - the defect class this round exists to close.
+//   * String tracking is line-local and errs toward CODE: a quote that does not close on its line is
+//     closed at the line's end, so a runaway quote cannot swallow the rest of a fence.
+//   * A language this table does not name has no comment syntax here and its text is returned
+//     unchanged. An unknown fence is read as code, never as a comment.
+//   * The forms deliberately NOT modelled are named in the evidence (DS-CU-210 section 11): Ruby's
+//     `=begin/=end`, Perl's POD, INI's `;`, YAML block scalars and DOT's leading `#` are distinct
+//     lexical families, no scanned fence uses one, and the table grows by one row plus one planted
+//     shape - which the coverage test below refuses to let anyone skip.
+const COMMENT_SYNTAX = new Map(Object.entries({
+  // `//` to end of line, `/* ... */` in pairs that do not nest.
+  csharp: { line: ['//'], block: ['/*', '*/'] },
+  cs: { line: ['//'], block: ['/*', '*/'] },
+  c: { line: ['//'], block: ['/*', '*/'] },
+  javascript: { line: ['//'], block: ['/*', '*/'] },
+  js: { line: ['//'], block: ['/*', '*/'] },
+  typescript: { line: ['//'], block: ['/*', '*/'] },
+  ts: { line: ['//'], block: ['/*', '*/'] },
+  java: { line: ['//'], block: ['/*', '*/'] },
+  go: { line: ['//'], block: ['/*', '*/'] },
+  solidity: { line: ['//'], block: ['/*', '*/'] },
+  kotlin: { line: ['//'], block: ['/*', '*/'] },
+  scala: { line: ['//'], block: ['/*', '*/'] },
+  dot: { line: ['//'], block: ['/*', '*/'] },
+  graphviz: { line: ['//'], block: ['/*', '*/'] },
+  // `/* ... */` pairs that NEST: rust and swift are the two fence languages here whose own grammar
+  // says a comment opened inside a comment is still the same comment.
+  rust: { line: ['//'], block: ['/*', '*/'], nest: true },
+  swift: { line: ['//'], block: ['/*', '*/'], nest: true },
+  // PHP has both single-line markers, and GraphQL's only marker is `#` (it has no `//`), which
+  // corrects the family the r2 regex put it in. Neither language has a fence in the scanned
+  // documents today, so both corrections are inert on the corpus and each carries a planted shape.
+  php: { line: ['//', '#'], block: ['/*', '*/'] },
+  graphql: { line: ['#'] },
+  // `#` to end of line, plus PowerShell's own `<# ... #>` pair.
+  python: { line: ['#'] },
+  py: { line: ['#'] },
+  bash: { line: ['#'] },
+  shell: { line: ['#'] },
+  sh: { line: ['#'] },
+  zsh: { line: ['#'] },
+  yaml: { line: ['#'] },
+  yml: { line: ['#'] },
+  toml: { line: ['#'] },
+  ini: { line: ['#'] },
+  dockerfile: { line: ['#'] },
+  r: { line: ['#'] },
+  ruby: { line: ['#'] },
+  perl: { line: ['#'] },
+  powershell: { line: ['#'], block: ['<#', '#>'] },
+  // Mermaid's comment marker is `%%`. A diagram has no string syntax, so a label's apostrophe must
+  // not open one; the flag keeps that from happening.
+  mermaid: { line: ['%%'], strings: false },
+}));
+
+// The comment syntax of one fence's language. An unknown language has none: its text is code.
+function commentSyntax(language) {
+  return COMMENT_SYNTAX.get(language) ?? {};
 }
-function fenceClaims(line, language = '') {
-  const code = codePart(line, language);
+
+// A lexer for ONE FENCE. A block comment that opens on one line and closes on a later one is the
+// same comment, so the state lives in the lexer, which is created when the fence opens and dropped
+// when it closes: a comment can never leak from one fence into the next.
+function commentLexer(language) {
+  const syntax = commentSyntax(language);
+  const markers = syntax.line ?? [];
+  const block = syntax.block ?? null;
+  let depth = 0;
+  return {
+    code(line) {
+      let code = '';
+      let index = 0;
+      while (index < line.length) {
+        if (depth > 0) {
+          if (syntax.nest && line.startsWith(block[0], index)) { depth += 1; index += block[0].length; continue; }
+          if (line.startsWith(block[1], index)) { depth -= 1; index += block[1].length; continue; }
+          index += 1;
+          continue;
+        }
+        if (syntax.strings !== false) {
+          const quote = line[index];
+          if (quote === '"' || quote === "'" || quote === '`') {
+            const end = stringEnd(line, index, quote);
+            code += line.slice(index, end);
+            index = end;
+            continue;
+          }
+        }
+        if (block !== null && line.startsWith(block[0], index)) { depth = 1; index += block[0].length; continue; }
+        if (markers.some((marker) => line.startsWith(marker, index))) break;
+        code += line[index];
+        index += 1;
+      }
+      return code;
+    },
+  };
+}
+
+// A string literal ends on its own line: an unclosed quote is closed at the line's end rather than
+// swallowing the fence, and the text is copied through as code either way.
+function stringEnd(line, start, quote) {
+  let index = start + 1;
+  while (index < line.length) {
+    if (line[index] === '\\' && index + 1 < line.length) { index += 2; continue; }
+    if (line[index] === quote) return index + 1;
+    index += 1;
+  }
+  return line.length;
+}
+
+// The single-line form, for a caller that reads one line with no fence around it (the vocabulary
+// assertions near the end of this file). A comment that spans lines needs the per-fence lexer.
+function codePart(line, language) {
+  return commentLexer(language).code(line);
+}
+
+// The names one line of CODE asserts.
+function claimNames(code) {
   const names = new Set();
   for (const match of code.matchAll(/([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
   for (const match of code.matchAll(/\b(?:operation|method|entrypoint|function|func)\s*:\s*['"]([A-Za-z_]\w*)['"]/gi)) names.add(match[1]);
@@ -548,6 +671,11 @@ function fenceClaims(line, language = '') {
   for (const match of code.matchAll(/DisplayName\("([^"]+)"\)/g)) names.add(match[1]);
   return [...names].filter((name) => isReadableName(name)
     && !FRAMEWORK_RECEIVERS.has(name) && !NON_CALLABLES.has(name));
+}
+
+// The names a single fenced line asserts, with the comment rule applied in that line's own language.
+function fenceClaims(line, language = '') {
+  return claimNames(codePart(line, language));
 }
 
 // What the fenced scan finds, as data: { claims: { file: [names] }, mentions: { file: [names] } }.
@@ -583,15 +711,20 @@ function fenceScan() {
         `${file}: the no-fence-claims annotation covers "${language}", a Neo language a claim can be written in`);
     }
     let info = null;
+    // One lexer per fence, created when the fence opens and dropped when it closes, so a block
+    // comment cannot carry its state across a fence boundary.
+    let lexer = null;
     lines.forEach((line, index) => {
       if (/^\s*```/.test(line)) {
         info = info === null ? line.trim().replace(/^```/, '').trim() : null;
+        lexer = info === null ? null : commentLexer(info.split(/[\s{:]/)[0].toLowerCase());
         return;
       }
       if (info === null) return;
       const language = info.split(/[\s{:]/)[0].toLowerCase();
       if (exempt.has(language) || snippetScope) return;
       if (REMOVED.test(line) || historical[index]) return;
+      const code = lexer.code(line);
       // A bare identifier is recorded as a mention only in a diagram: a flowchart or state diagram
       // has a reason to name things that are not called (a node, a state), while a bare identifier
       // in a code block is a variable or a field. Call syntax is a claim in both, which is why a
@@ -601,8 +734,8 @@ function fenceScan() {
         // A name the same line asserts as a call is a claim, not a mention: the two ledgers stay
         // disjoint, so a label like `InitiateEscape()` is reported once as a claim and is never also
         // recorded as a justified mention (DS-CU-211).
-        const claimed = new Set(fenceClaims(line, language));
-        for (const match of line.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
+        const claimed = new Set(claimNames(code));
+        for (const match of code.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
           const name = match[1];
           if (claimed.has(name)) continue;
           // The mention ledger keeps the SHAPE vocabulary (DS-CU-212, DEC-DS-6 rule 4): a diagram
@@ -617,7 +750,7 @@ function fenceScan() {
           mentions[file].add(name);
         }
       }
-      for (const name of fenceClaims(line, language)) {
+      for (const name of claimNames(code)) {
         if (isLiveName(name, file)) continue;
         (claims[file] ??= []).push(name);
       }
