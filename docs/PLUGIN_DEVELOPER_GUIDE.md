@@ -215,10 +215,12 @@ public interface IHook
 }
 ```
 
-The names above are the deployed ones. The contracts build compiles with `nccs`, which lower-cases
-the first letter of every exported member, so the C# source declares these callbacks in PascalCase
-(PreExecute, PostExecute, ClearAccount) while the manifest your plugin deploys exports the three
-names above — and the core calls the manifest spelling. The rule is stated for contract authors in
+The sketch above is written in the deployed spelling deliberately, because these are the names the AA
+core calls: the manifest your plugin deploys has to export them, and a method declared the way the
+sketch declares it exports exactly that name. The contracts build compiles with `nccs`, which
+lower-cases the first letter of every exported member, so a hook contract that declares the same
+three callbacks as PreExecute, PostExecute and ClearAccount deploys the same names — the rule leaves
+a declaration that is already lower-case unchanged. The rule is stated for contract authors in
 `neo-os-contracts` `contracts/README.md` ("The deployed spelling of an exported member"); writing
 the C# spelling in documentation is a claim about a name the deployment does not carry.
 
