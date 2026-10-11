@@ -398,6 +398,51 @@ test('CU-202: the ratchet reads inline-code spans and declares the boundary it d
   assert.match(note, /CU-210/, 'the declaration must name the row that owns the fenced measurement');
 });
 
+// RV-DSCU202R1-r1 (major) filed the gitleaks range scan against the sdk-usage.md allowance. Which
+// configuration a scan reads is decided by the tree it runs in, not by the commit it scans (the
+// precedence is in the .gitleaks.toml header, and the measurement is DS-CU-202-20261009.md round 2),
+// so what a repository test can hold is the allowance's own claim: one rule, one file, one assignment
+// of one reviewed value. DS-CU-163 section 12.4 proved that shape with planted secrets in a clone;
+// here it is asserted on every run, and a wrong guess about it fails rather than passing quietly.
+test('CU-202: the gitleaks allowance stays attached to the one value it triaged', () => {
+  const block = read('.gitleaks.toml').split('[[allowlists]]').slice(1).find((entry) => entry.includes('sdk-usage'));
+  assert.ok(block, '.gitleaks.toml must carry the sdk-usage.md allowance RV-DSCU163R1-r1 triaged');
+  const field = (key) => {
+    const match = block.match(new RegExp(`${key} = (.+)`));
+    assert.ok(match, `the allowance must set ${key}`);
+    return match[1].trim();
+  };
+  const literal = (key) => {
+    const match = block.match(new RegExp(`${key} = \\[\\s*'''(.*?)'''\\s*\\]`, 's'));
+    assert.ok(match, `the allowance must set ${key} as a list of literal strings`);
+    return match[1];
+  };
+  assert.equal(field('targetRules'), '["generic-api-key"]', 'the allowance must suppress exactly one rule');
+  assert.equal(field('condition'), '"AND"', 'every clause of the allowance must have to match');
+  assert.equal(field('regexTarget'), '"line"', 'the allowance must constrain the whole line, not the matched value alone');
+  // The path half: anchored to one document, not to a directory or a file-name prefix.
+  const pathRegex = new RegExp(literal('paths'));
+  assert.ok(pathRegex.test('frontend/src/assets/docs/sdk-usage.md'), 'the allowance must reach the document it triages');
+  for (const other of ['frontend/src/assets/docs/sdk-usage.md.bak', 'docs/sdk-usage.md', 'frontend/src/assets/docs/other.md']) {
+    assert.ok(!pathRegex.test(other), `the allowance must not reach ${other}`);
+  }
+  // The value half: the reviewed assignment of the reviewed value, and nothing else on that line.
+  // gitleaks reads Go's regexp, where [[:space:]] is a POSIX class JavaScript does not carry, so that
+  // one class is translated; any other POSIX class fails this test instead of being read wrongly.
+  const regexSource = literal('regexes');
+  assert.ok(!/\[\[:(?!space:\]\])/.test(regexSource), 'the allowance uses a POSIX class this test cannot translate');
+  const lineRegex = new RegExp(regexSource.replace(/\[\[:space:\]\]/g, '[ \\t]'));
+  const covered = read('frontend/src/assets/docs/sdk-usage.md').split('\n').filter((line) => lineRegex.test(line));
+  assert.equal(covered.length, 1, `the allowance must match exactly one line of the document it triages; it matches ${covered.length}`);
+  const value = covered[0].match(/\b0x[0-9a-fA-F]{40}\b/)[0];
+  assert.ok(canonicalHashes.has(value.toLowerCase()),
+    `the allowed value ${value} must be the canonical registry hash, not a value generatedMorpheusRegistry.js does not carry`);
+  assert.ok(!lineRegex.test(covered[0].replace(value, '0x9f2c41ab77de05361c8b0e4a6d5f31c7b8a2e904')),
+    'a different value on the reviewed line must still be reported (the DS-CU-163 section 12.4 control)');
+  assert.ok(!lineRegex.test(covered[0].replace('web3AuthVerifierHash', 'otherVerifierHash')),
+    'the same value under a different identifier must still be reported');
+});
+
 test('CU-163: the current-runtime documents state only what the code and the deployed artifacts decide', () => {
   const problems = failures();
   assert.deepEqual(problems, [], `documentation drift:\n${problems.join('\n')}`);

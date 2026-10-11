@@ -5,6 +5,16 @@
 # one value shape, so the same value anywhere else, a different value on that
 # line, or any other secret in the same file is still reported. Never allowlist
 # a live credential here: rotate it.
+#
+# This file is resolved from the tree a scan runs in, not from the commit it
+# scans: gitleaks takes --config, then GITLEAKS_CONFIG, then (target
+# path)/.gitleaks.toml, then its own defaults (`gitleaks git --help`, 8.30.1). A
+# range scan therefore sees an allowance only when the checkout it runs from
+# carries it, and the same range scanned from a checkout that predates an
+# allowance reports the value that allowance covers - measured, with counts, in
+# DS-CU-202-20261009.md round 2. Run a range scan from the head of the range,
+# which is where this configuration is read from:
+#   gitleaks git --redact --no-banner --exit-code 1 --log-opts="<base>..<head>" .
 
 # Verified with the gitleaks release the NeoOS secret-scan workflows pin.
 minVersion = "v8.30.1"
