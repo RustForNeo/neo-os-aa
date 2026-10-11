@@ -353,6 +353,34 @@ function shapedLikeEntrypoint(name) {
 // vocabulary reads it, or when the compiler exports it under a different spelling than the source
 // writes (the divergent class). The union keeps every name the base read, so no recorded entry can
 // be dropped by the widening.
+//
+// ---------------------------------------------------------------------------------------------
+// CU-210 R2, after the r1 NO-GO. The union above is still not the whole vocabulary a fenced call
+// can be written in, and the gap was invisible because a name the vocabulary cannot read is not
+// reported and not recorded - it is simply gone:
+//
+//   * `collectChildProofs(context, operation)` and `childSigns()` in the fenced JavaScript
+//     example of docs/MULTISIG_SDK.md name nothing the repository contains (no `.cs`, `.js`,
+//     `.mjs`, `.ts` or `.py` file defines or calls either one; the example's real calls are
+//     `multisig.fetchContext`, `multisig.prepareOperation` and `multisig.validateBundle`);
+//   * neither is read by the shape rule, because the shape rule needs a capital after the
+//     prefix (`deposit` + `A`), and the build lower-cases an exported member's first letter -
+//     so the canonical spelling of every exported member is exactly the class the shape rule
+//     drops. `transfer` and `forward` are deployed ABI members this oracle never looked at.
+//
+// The widening is the build's own naming rule, read as a rule rather than enumerated: a
+// lowercase-initial, capital-bearing (camelCase) identifier is the spelling `Helper.GetDisplayName`
+// produces for an exported member (DS-CU-212, DEC-DS-6), so it is a name the oracle must READ.
+// Reading it is not the same as reporting it: `isLiveName` still decides, and `transfer` and
+// `forward` are live and stay unreported.
+//
+// The wrapper below exists so the kill controls can switch the widening OFF and show the planted
+// drifts surviving. A rule that cannot be removed cannot be shown to be the thing doing the work.
+const widenVocabulary = { enabled: true };
+const LOWER_CAMEL = /^[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*$/;
+function isReadableName(name) {
+  return isCallableName(name) || (widenVocabulary.enabled && LOWER_CAMEL.test(name));
+}
 function isCallableName(name) {
   return shapedLikeEntrypoint(name) || divergentSpellings.has(name);
 }
@@ -484,16 +512,32 @@ function isLiveName(name, file) {
 // The names a single fenced line asserts. `claim` is a property of the line's own syntax, so a
 // definition spread over two lines (a C# signature with its parameters on the next line) declares
 // itself on the line that carries the name. The claim side reads the WIDENED vocabulary
-// (DS-CU-212): a fenced call to the source spelling of an exported member is a claim about the
-// deployed artifact, and the shape rule alone could not read it.
-function fenceClaims(line) {
+// (DS-CU-212 and CU-210 R2): a fenced call to the source spelling of an exported member, and a
+// fenced call written in the build's camelCase spelling, are both claims about the deployed
+// artifact, and the shape rule alone could not read either.
+//
+// A COMMENT is not code position, so it asserts nothing (CU-210 R2). Widening the vocabulary made
+// this visible: `// ~ paymaster.sponsorshipPolicy (time-based expiry)` in
+// docs/ETHEREUM_AA_COMPARISON.md is prose comparing two systems, and reading it as a claim invented
+// a Neo entrypoint out of an Ethereum field name. Nothing else speaks for the fenced code around it,
+// so the claim that would have silenced a real finding stays silent (DEC-DS-9).
+const LINE_COMMENT = /^(?:csharp|cs|c|javascript|js|typescript|ts|java|go|rust|solidity|swift|kotlin|scala|php|graphql)$/;
+const HASH_COMMENT = /^(?:python|py|bash|shell|sh|zsh|yaml|yml|toml|ini|dockerfile|powershell|r|ruby|perl)$/;
+function codePart(line, language) {
+  const marker = LINE_COMMENT.test(language) ? '//' : HASH_COMMENT.test(language) ? '#' : null;
+  if (marker === null) return line;
+  const at = line.indexOf(marker);
+  return at === -1 ? line : line.slice(0, at);
+}
+function fenceClaims(line, language = '') {
+  const code = codePart(line, language);
   const names = new Set();
-  for (const match of line.matchAll(/([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
-  for (const match of line.matchAll(/\b(?:operation|method|entrypoint|function|func)\s*:\s*['"]([A-Za-z_]\w*)['"]/gi)) names.add(match[1]);
-  for (const match of line.matchAll(/["']([A-Za-z_]\w*)["']\s*,\s*(?:CallFlags|CallPermission)/g)) names.add(match[1]);
-  for (const match of line.matchAll(/(?:public|private|internal|protected)\s+static\s+(?:[\w<>[\],.?]+\s+)?([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
-  for (const match of line.matchAll(/DisplayName\("([^"]+)"\)/g)) names.add(match[1]);
-  return [...names].filter((name) => isCallableName(name)
+  for (const match of code.matchAll(/([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
+  for (const match of code.matchAll(/\b(?:operation|method|entrypoint|function|func)\s*:\s*['"]([A-Za-z_]\w*)['"]/gi)) names.add(match[1]);
+  for (const match of code.matchAll(/["']([A-Za-z_]\w*)["']\s*,\s*(?:CallFlags|CallPermission)/g)) names.add(match[1]);
+  for (const match of code.matchAll(/(?:public|private|internal|protected)\s+static\s+(?:[\w<>[\],.?]+\s+)?([A-Za-z_]\w*)\s*\(/g)) names.add(match[1]);
+  for (const match of code.matchAll(/DisplayName\("([^"]+)"\)/g)) names.add(match[1]);
+  return [...names].filter((name) => isReadableName(name)
     && !FRAMEWORK_RECEIVERS.has(name) && !NON_CALLABLES.has(name));
 }
 
@@ -548,7 +592,7 @@ function fenceScan() {
         // A name the same line asserts as a call is a claim, not a mention: the two ledgers stay
         // disjoint, so a label like `InitiateEscape()` is reported once as a claim and is never also
         // recorded as a justified mention (DS-CU-211).
-        const claimed = new Set(fenceClaims(line));
+        const claimed = new Set(fenceClaims(line, language));
         for (const match of line.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
           const name = match[1];
           if (claimed.has(name)) continue;
@@ -564,7 +608,7 @@ function fenceScan() {
           mentions[file].add(name);
         }
       }
-      for (const name of fenceClaims(line)) {
+      for (const name of fenceClaims(line, language)) {
         if (isLiveName(name, file)) continue;
         (claims[file] ??= []).push(name);
       }
@@ -1404,8 +1448,8 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
     {
       rule: 'the same widening reads a camel-case call in a fenced diagram label, not only in a code block (F8)',
       file: 'docs/DATA_FLOW.md',
-      plant: (text) => text.replace('HasID{Account ID Valid?}', 'HasID{isAccountIdValid(accountId)}'),
-      claim: 'isAccountIdValid',
+      plant: (text) => text.replace('HasID{Account ID Valid?}', 'HasID{bulkVerifySignatures(accountId)}'),
+      claim: 'bulkVerifySignatures',
     },
     {
       rule: 'CONTROL: widening the vocabulary does not invent drift - a live camel-case spelling stays unreported, and a bare camel-case identifier in a diagram stays a mention',
@@ -1415,6 +1459,13 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
       liveUnreported: ['transfer', 'forward'],
       notAClaim: 'collectionActive',
       survivesWithoutVocabulary: true,
+    },
+    {
+      rule: 'the same dead camel-case call is a claim in code position and silent inside a comment (F9)',
+      file: 'docs/MULTISIG_SDK.md',
+      plant: (text) => text.replace('const bundle = await multisig.validateBundle({ context, operation, childProofs });', 'const bundle = await multisig.validateBundle({ context, operation, childProofs });\nconst packets = await gatherChildProofPackets(context, operation);'),
+      claim: 'gatherChildProofPackets',
+      commentedOut: (text) => text.replace('const bundle = await multisig.validateBundle({ context, operation, childProofs });', 'const bundle = await multisig.validateBundle({ context, operation, childProofs });\n  // gatherChildProofPackets(context, operation)'),
     },
     {
       rule: 'the illustrative-language annotation must carry a reason, so it cannot be a bare silence',
@@ -1429,9 +1480,15 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
       throws: /not an illustrative \(non-Neo\) language/,
     },
   ];
+  // The pre-mutant bytes of every file this test is about to write to, so the restore below is
+  // checked against what was really there rather than against a list of names the test remembers.
+  const pristine = new Map();
+  for (const file of new Set(mutants.map((mutant) => mutant.file))) {
+    pristine.set(file, fs.readFileSync(path.join(repoRoot, file), 'utf8'));
+  }
   for (const mutant of mutants) {
     const target = path.join(repoRoot, mutant.file);
-    const original = fs.readFileSync(target, 'utf8');
+    const original = pristine.get(mutant.file);
     const planted = mutant.plant(original);
     assert.notEqual(planted, original, `${mutant.rule}: the mutant did not change ${mutant.file}`);
     fs.writeFileSync(target, planted);
@@ -1493,14 +1550,34 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
         fs.writeFileSync(target, original);
       }
     }
+    // The commented half: the same dead call inside a comment must be silent in BOTH ledgers. A
+    // document that keeps a stale name as a comment makes no claim about the runtime, so recording
+    // it as a justified mention would be the guard charging prose as debt.
+    if (mutant.commentedOut) {
+      const commented = mutant.commentedOut(original);
+      assert.notEqual(commented, original, `${mutant.rule}: the commented mutant did not change ${mutant.file}`);
+      fs.writeFileSync(target, commented);
+      try {
+        const scan = fenceScan();
+        assert.ok(!scan.claims[mutant.file]?.includes(mutant.claim),
+          `${mutant.rule}: a commented-out call was reported as a claim`);
+        assert.ok(!(scan.mentions[mutant.file] ?? []).includes(mutant.claim),
+          `${mutant.rule}: a commented-out call was recorded as a justified mention`);
+        assert.ok(!(ratchetDebt()[mutant.file] ?? []).some((entry) => entry.endsWith(`:${mutant.claim}`)),
+          `${mutant.rule}: a commented-out call was charged to the inline ratchet`);
+      } finally {
+        fs.writeFileSync(target, original);
+      }
+    }
   }
   // THE KILL CONTROLS, run as a second pass: with the widening switched off, each mutant that
   // exists to exercise it must stop being reported. A mutant that still died would be killing
   // something else, and its "kill" above would not be evidence for this rule (DEC-DS-9).
   for (const mutant of mutants.filter((entry) => entry.survivesWithoutVocabulary === true
-    || entry.claim === 'listDeployedVerifiers' || entry.claim === 'isAccountIdValid')) {
+    || entry.claim === 'listDeployedVerifiers' || entry.claim === 'bulkVerifySignatures'
+    || entry.claim === 'gatherChildProofPackets')) {
     const target = path.join(repoRoot, mutant.file);
-    const original = fs.readFileSync(target, 'utf8');
+    const original = pristine.get(mutant.file);
     fs.writeFileSync(target, mutant.plant(original));
     widenVocabulary.enabled = false;
     try {
@@ -1515,14 +1592,13 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
       fs.writeFileSync(target, original);
     }
   }
-  // the mutants leave the tree exactly as they found it
-  for (const mutant of mutants) {
-    const target = path.join(repoRoot, mutant.file);
-    const text = fs.readFileSync(target, 'utf8');
-    for (const planted of [mutant.claim, mutant.mention, mutant.notAClaim, ...(mutant.liveUnreported ?? [])].filter(Boolean)) {
-      assert.ok(!text.includes(planted), `${mutant.file} kept a planted drift: ${planted}`);
-    }
-    assert.ok(!text.includes('setLegacyVerifierAddress'), `${mutant.file} kept a planted drift`);
+  // The mutants must leave the tree byte-identical to what they found. This is a stronger check
+  // than looking for a planted name: `transfer` is a substring of `MaxTransferPrefix`, a key prefix
+  // docs/DATA_FLOW.md legitimately names, so a substring test on the name would fail on an untouched
+  // tree, and a check that only lists the names it knows about cannot see a partial restore.
+  for (const file of new Set(mutants.map((mutant) => mutant.file))) {
+    assert.equal(fs.readFileSync(path.join(repoRoot, file), 'utf8'), pristine.get(file),
+      `${file} was not restored to its pre-mutant bytes`);
   }
 });
 
@@ -1617,12 +1693,15 @@ test('CU-212: the entrypoint vocabulary is derived from the build and both oracl
   }
   assert.ok(callableNames('the callback `OnNEP17Payment(accountId, amount, data)` runs').some(({ name }) => name === 'OnNEP17Payment'),
     'the inline oracle does not collect the source spelling of an exported member');
-  assert.ok(fenceClaims('onNEP17Payment(accountId, amount, data)').length === 0,
-    'a deployed spelling in a fence is claimed as drift');
+  // A deployed spelling is READ by the fence oracle now (CU-210 R2 widened the vocabulary to the
+  // build's own camelCase class, which is exactly how an exported member is spelled), and reading a
+  // name is not reporting it: the liveness rule owns that, and it keeps a deployed spelling live.
+  assert.ok(fenceClaims('onNEP17Payment(accountId, amount, data)').includes('onNEP17Payment'),
+    'the fence oracle cannot read the deployed spelling of an exported member');
   assert.ok(fenceClaims('OnNEP17Payment(accountId, amount, data)').includes('OnNEP17Payment'),
     'the fence oracle cannot read the source spelling of an exported member');
   assert.equal(isLiveName('onNEP17Payment', 'docs/SECURITY_AUDIT.md'), true,
-    'the deployed spelling of the member is not live');
+    'the deployed spelling of the member is not live, so the oracle would report it as drift');
   assert.equal(isLiveName('OnNEP17Payment', 'docs/SECURITY_AUDIT.md'), false,
     'the source spelling of an exported member is live again, so the class is invisible');
 

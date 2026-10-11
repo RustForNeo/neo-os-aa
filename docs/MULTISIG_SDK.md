@@ -16,8 +16,12 @@ const operation = await multisig.prepareOperation({
   context,
   operation: { targetContract, method: 'symbol', args: [], deadline: String(Date.now() + 600_000) },
 });
-// Each childSigns() adapter receives the same operation and its own verifier identity.
-const childProofs = await collectChildProofs(context, operation);
+// Build one proof per child from the explicit `{ childVerifierHash, kind, operation, signatureHex }`
+// record of step 4. The SDK has no collector for these: only the caller knows which children sign
+// and in what real signing format, so the array is assembled here, not fetched.
+const childProofs = [
+  { childVerifierHash, kind: 'evm', operation, signatureHex, typedData, signatureFullHex },
+];
 const bundle = await multisig.validateBundle({ context, operation, childProofs });
 // bundle.invocation is the complete executeUserOp payload for the normal transaction path.
 // Review/simulate that full transaction, including its fee payer and any required proxy witness.
