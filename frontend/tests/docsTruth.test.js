@@ -956,7 +956,119 @@ const reviewedAllowlists = () => [
     rejects: null,
     canonicalValue: /\b0x[0-9a-fA-F]{40}\b/,
   },
+  // CU-231: the four generated audit reports the default head's canonical scan reports. Each is an
+  // inventory allowance - the reviewed unit is one artefact and one value class, not one value,
+  // because a generated digest map carries the same class on hundreds of lines and enumerating them
+  // would copy the artefact into this guard. What keeps that from being a blanket is the `inventory`
+  // binding asserted below: the number of lines the allowance reaches and the SHA-256 of the bytes
+  // this triage read. Any edit to the artefact changes the digest and refuses until the triage is
+  // redone, so no unreviewed byte can ride under an existing allowance.
+  //
+  // The classification (WS-CU-231-20261012.md, measurement 2): all 37 findings are
+  // `generic-api-key`, all from one commit, and in every one of them the rule's keyword comes from
+  // the JSON member name - a source path containing `Key`, `Token` or `API`, or the artefact name
+  // `SessionKeyVerifier` - while the value is a content digest or a chain script hash. Neither
+  // class is a credential: a SHA-256 of a public source file and a 20-byte Neo script hash are
+  // public identifiers that authenticate nothing. Zero of the 37 is a real exposure.
+  {
+    id: 'native-domain-copy-runner-build-source-digests',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^docs/reports/native-domain-copy-20261009/runner-build\\.json$'],
+      regexTarget: 'line',
+      // A JSON member whose name is a repo-relative C# source path or an assembly name and whose
+      // value is exactly 64 lower-case hex: the shape of one `sourceSha256` or `builds/runtime`
+      // entry. A value of another width or case, an upper-case digest, or the same digest under a
+      // name that is not a `.cs`/`.dll` path is outside the allowance and still reported.
+      regexes: ['^[[:space:]]*"[A-Za-z0-9._/-]+\\.(cs|dll)": "[0-9a-f]{64}",?[[:space:]]*$'],
+    },
+    literalPath: 'docs/reports/native-domain-copy-20261009/runner-build.json',
+    matchOf: (line) => line,
+    accepts: null,
+    rejects: digestInventoryControls,
+    inventory: { lines: 736, sha256: 'b172f9846e98d3a4649b2e1b24d10ac8e21acd1710d50ec1c30a890d8b0242fe' },
+  },
+  {
+    id: 'native-domain-copy-candidate-acceptance-artifact-digests',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^docs/reports/native-domain-copy-20261009/candidate-acceptance\\.json$'],
+      regexTarget: 'line',
+      // The same class for compiled artefacts: a `.nef` name mapped to its 64-hex SHA-256, the
+      // shape of one `artifactHashes` entry.
+      regexes: ['^[[:space:]]*"[A-Za-z0-9._/-]+\\.nef": "[0-9a-f]{64}",?[[:space:]]*$'],
+    },
+    literalPath: 'docs/reports/native-domain-copy-20261009/candidate-acceptance.json',
+    matchOf: (line) => line,
+    accepts: null,
+    rejects: digestInventoryControls,
+    inventory: { lines: 3, sha256: '646342edcc462ef3d5d17275ae038d0fba36466738761b5c466172632e4973bd' },
+  },
+  {
+    id: 'native-domain-copy-comparison-artifact-digests',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^docs/reports/native-domain-copy-20261009/comparison\\.json$'],
+      regexTarget: 'line',
+      regexes: ['^[[:space:]]*"[A-Za-z0-9._/-]+\\.nef": "[0-9a-f]{64}",?[[:space:]]*$'],
+    },
+    literalPath: 'docs/reports/native-domain-copy-20261009/comparison.json',
+    matchOf: (line) => line,
+    accepts: null,
+    rejects: digestInventoryControls,
+    inventory: { lines: 6, sha256: '191917ca34fd1d5ba12872ba739a33d3f2ed71ca9d72a96b4c1606643125150b' },
+  },
+  {
+    id: 'native-usability-private-runtime-session-verifier-hashes',
+    fields: {
+      targetRules: ['generic-api-key'],
+      condition: 'AND',
+      paths: ['^docs/reports/native-usability-20261009/private-runtime\\.json$'],
+      regexTarget: 'line',
+      // The `accounts` and `proxies` entries for `SessionKeyVerifier`: a 20-byte Neo script hash,
+      // with and without the `0x` prefix the report uses for contracts. That report declares
+      // `publicNetworksTouched: false` and `networkMagic: 2787300650`, an ephemeral neo-express
+      // chain, and its proxy hash differs from the shared TestNet `aaSessionKeyVerifier` the
+      // registry carries - so this is a private-chain address, not even a public deployment.
+      regexes: ['^[[:space:]]*"SessionKeyVerifier": "(0x)?[0-9a-f]{40}",?[[:space:]]*$'],
+    },
+    literalPath: 'docs/reports/native-usability-20261009/private-runtime.json',
+    matchOf: (line) => line,
+    accepts: null,
+    rejects: (line) => [
+      { why: 'a hash of another width under the reviewed member', line: line.replace(/[0-9a-f]{40}/, (hash) => hash.slice(1)) },
+      { why: 'an upper-case value under the reviewed member', line: line.replace(/[0-9a-f]{40}/, (hash) => hash.toUpperCase()) },
+      { why: 'the same value under a member the allowance does not name', line: line.replace(/"[^"]+":/, '"apiKey":') },
+    ],
+    inventory: { lines: 2, sha256: '611a3495cf8bb7a3158fa60d06cbcb518f0b218e7a93b4b19775aa150e6facb0' },
+  },
 ];
+
+// The controls for a digest-inventory allowance, derived from a line the artefact itself carries so
+// this guard holds no copy of the artefact: a digest one character short, the same digest in upper
+// case, and the same digest under a member name that is not a source path. All three must still be
+// reported, which is what makes the allowance a class and not a blanket.
+function digestInventoryControls(line) {
+  return [
+    { why: 'a digest one character short of the reviewed width', line: line.replace(/"[0-9a-f]{64}"/, (digest) => `"${digest.slice(1, -2)}"`) },
+    { why: 'the reviewed digest in upper case', line: line.replace(/[0-9a-f]{64}/, (digest) => digest.toUpperCase()) },
+    { why: 'the reviewed digest under a member that is not a source path', line: line.replace(/"[^"]+":/, '"apiKey":') },
+  ];
+}
+
+// The population this row classified, by artefact: the files and per-file counts the canonical scan
+// of the default head reports (WS-CU-231-20261012.md, measurement 1 - 37 findings over
+// `be06b8f..3dc7d8a`, symmetric difference zero against the 21-commit range the row measured). The
+// scanner-level test below holds both directions against these numbers.
+const CU231_CLASSIFIED = new Map([
+  ['docs/reports/native-domain-copy-20261009/runner-build.json', 32],
+  ['docs/reports/native-domain-copy-20261009/candidate-acceptance.json', 1],
+  ['docs/reports/native-domain-copy-20261009/comparison.json', 2],
+  ['docs/reports/native-usability-20261009/private-runtime.json', 2],
+]);
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -1189,7 +1301,20 @@ test('CU-202: every reviewed allowance stays attached to the one value it triage
       return typeof target === 'string' && pattern.test(target);
     };
     const covered = read(entry.literalPath).split('\n').filter(matchesLine);
-    assert.equal(covered.length, 1, `${where}: the allowance must match exactly one line of the document it triages; it matches ${covered.length}`);
+    // One value, one line: the reviewed unit for an allowance that triages a single assignment. An
+    // inventory allowance (CU-231) triages one value class across a generated artefact instead, so
+    // the reviewed unit is the artefact's bytes: the entry records how many lines the allowance
+    // reaches and the SHA-256 it read, and both are held here. The digest is the half that matters
+    // - a line count alone would let an edited artefact keep its allowance by keeping the count.
+    const expectedLines = entry.inventory ? entry.inventory.lines : 1;
+    assert.equal(covered.length, expectedLines,
+      `${where}: the allowance must match exactly ${expectedLines} line(s) of the document it triages; it matches ${covered.length}`);
+    if (entry.inventory) {
+      assert.ok(entry.inventory.lines > 0, `${where}: an inventory allowance that reaches no line suppresses nothing and must be removed`);
+      const digest = createHash('sha256').update(fs.readFileSync(path.join(repoRoot, entry.literalPath))).digest('hex');
+      assert.equal(digest, entry.inventory.sha256,
+        `${where}: ${entry.literalPath} no longer carries the bytes this triage reviewed; review the new bytes and record their digest here`);
+    }
     if (entry.canonicalValue) {
       const value = covered[0].match(entry.canonicalValue)[0];
       assert.ok(canonicalHashes.has(value.toLowerCase()),
@@ -1198,10 +1323,13 @@ test('CU-202: every reviewed allowance stays attached to the one value it triage
     for (const accepted of entry.accepts || [covered[0]]) {
       assert.ok(matchesLine(accepted), `${where}: the allowance must still cover the assignment it triages`);
     }
-    const rejected = entry.rejects || [
+    // Controls may be declared as a list or derived from the reviewed line, so an allowance whose
+    // value this guard must not copy can still state both directions of its boundary.
+    const rejected = (typeof entry.rejects === 'function' ? entry.rejects(covered[0]) : entry.rejects) || [
       { why: 'a different value on the reviewed line (the DS-CU-163 section 12.4 control)', line: covered[0].replace(/\b0x[0-9a-fA-F]{40}\b/, '0x9f2c41ab77de05361c8b0e4a6d5f31c7b8a2e904') },
       { why: 'the same value under a different identifier', line: covered[0].replace('web3AuthVerifierHash', 'otherVerifierHash') },
     ];
+    assert.ok(rejected.length > 0, `${where}: an allowance must state at least one control that is still reported`);
     for (const control of rejected) {
       assert.ok(!matchesLine(control.line), `${where}: ${control.why} must still be reported`);
     }
@@ -1342,6 +1470,75 @@ test('CU-202: a planted secret survives the reviewed configuration, and the wide
     const problems = configurationViolations(widened, []);
     assert.equal(violationKinds(problems).includes('unreviewed-allowlist'), true,
       `the guard must refuse the configuration that silences the scan:\n${problems.join('\n') || '(nothing reported)'}`);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+// The acceptance of CU-231, at the scanner rather than at the guard: the four generated reports the
+// default head's canonical scan reports are committed into a throwaway repository with the reviewed
+// configuration, and the canonical range scan must be clean. The control is the half that gives
+// "clean" a meaning - with the four classified allowances removed, the same range must report the
+// same 37 findings, by artefact and by count. Without it a clean scan could mean the scanner never
+// looked. Skipped, explicitly, where gitleaks is absent.
+test('CU-231: the reviewed allowances are what clears the classified report findings', (t) => {
+  let available = true;
+  try {
+    execFileSync('gitleaks', ['version'], { stdio: 'pipe' });
+  } catch {
+    available = false;
+  }
+  if (!available) return t.skip('gitleaks is not on PATH: the scanner-level direction of this rule is unmeasured in this run');
+  const classified = reviewedAllowlists().filter((entry) => entry.inventory);
+  assert.deepEqual(classified.map((entry) => entry.literalPath).sort(), [...CU231_CLASSIFIED.keys()].sort(),
+    'the inventory allowances and the classified artefacts must be the same set; a classified artefact with no allowance is an unresolved finding');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cu231-gitleaks-'));
+  const git = (...args) => execFileSync('git', args, { cwd: scratch, stdio: 'pipe' });
+  const write = (relative, body) => {
+    fs.mkdirSync(path.dirname(path.join(scratch, relative)), { recursive: true });
+    fs.writeFileSync(path.join(scratch, relative), body);
+  };
+  try {
+    git('init', '--quiet');
+    git('config', 'user.name', 'CU-231');
+    git('config', 'user.email', 'cu-231@localhost');
+    write(GITLEAKS_CONFIG, read(GITLEAKS_CONFIG));
+    git('add', '-A');
+    git('commit', '--quiet', '-m', 'configuration');
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim();
+    // The artefacts themselves, byte for byte, added by one commit: that is how the default head
+    // carries them, and `gitleaks git` reports a finding against the patch that introduces it.
+    for (const relative of CU231_CLASSIFIED.keys()) write(relative, read(relative));
+    git('add', '-A');
+    git('commit', '--quiet', '-m', 'reports');
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim();
+    // The canonical invocation this repository documents, with the verdict read from the report
+    // rather than from the exit code: a scan that fails to run writes no report at all.
+    const perFile = (label, config) => {
+      write(GITLEAKS_CONFIG, config);
+      const report = path.join(scratch, `${label}.json`);
+      try {
+        execFileSync('gitleaks', ['git', '--redact', '--no-banner', '--exit-code', '1', `--log-opts=${base}..${head}`, '--report-format', 'json', `--report-path=${report}`, '.'], { cwd: scratch, stdio: 'pipe' });
+      } catch { /* a finding is the expected outcome of the control run */ }
+      assert.ok(fs.existsSync(report), `${label}: the scan produced no report`);
+      const counts = new Map();
+      for (const found of JSON.parse(fs.readFileSync(report, 'utf8')) || []) {
+        counts.set(found.File, (counts.get(found.File) || 0) + 1);
+      }
+      return counts;
+    };
+    const reviewedConfig = read(GITLEAKS_CONFIG);
+    assert.deepEqual(perFile('reviewed', reviewedConfig), new Map(),
+      'the reviewed configuration must leave the canonical scan of these artefacts clean');
+    // The same range with the four classified allowances dropped, addressed by the path clause each
+    // one carries so the control cannot silently remove a different block.
+    const withoutClassified = reviewedConfig.split('[[allowlists]]')
+      .filter((block, index) => index === 0 || !classified.some((entry) => block.includes(entry.fields.paths[0])))
+      .join('[[allowlists]]');
+    assert.equal(withoutClassified.split('[[allowlists]]').length, reviewedConfig.split('[[allowlists]]').length - classified.length,
+      'the control must remove exactly the classified allowances');
+    assert.deepEqual(perFile('without-classified', withoutClassified), CU231_CLASSIFIED,
+      'without the classified allowances the canonical scan must report the findings this row classified; otherwise the clean scan above proves nothing');
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
