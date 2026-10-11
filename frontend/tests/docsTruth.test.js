@@ -1335,6 +1335,14 @@ const V2_FENCE_SCOPES = {
 
 test('CU-210: fenced blocks assert nothing the code does not, and the ratchet still holds', () => {
   const scan = fenceScan();
+  // CU-210 R2 (the NO-GO fix forward). The four names below are the ones the claim side of this
+  // oracle could not READ at the r1 head, so their drift was invisible to it while the test above
+  // stayed green - a check that could not fail. Two are dead calls that the fenced examples really
+  // make (`collectChildProofs`, `childSigns` in docs/MULTISIG_SDK.md; F7 and F8 below), and two are
+  // live ABI members written the way the build spells an exported member (`transfer`, `forward`),
+  // which the shape rule dropped without ever reaching the liveness rule.
+  assert.ok(!scan.claims['docs/MULTISIG_SDK.md']?.includes('collectChildProofs'),
+    'the dead call in the fenced MultiSig example is reported now; correct the document and move this name into the widening mutant');
   assert.deepEqual(scan.claims, {},
     `a fenced block calls a name the repository does not define:\n${JSON.stringify(scan.claims, null, 2)}`);
   const recorded = Object.fromEntries(Object.entries(V2_FENCE_MENTIONS).map(([file, entry]) => [file, entry.names]));
@@ -1388,6 +1396,27 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
       mention: 'HasLegacyIdCheck',
     },
     {
+      rule: 'a dead call spelled the way the build spells an exported member is reported (the drift the camel-case filter made invisible; F7)',
+      file: 'frontend/src/assets/docs/custom-verifiers.md',
+      plant: (text) => text.replace("  operation: 'updateVerifier',", "  operation: 'updateVerifier',\n  preflight: await listDeployedVerifiers(masterContractHash),"),
+      claim: 'listDeployedVerifiers',
+    },
+    {
+      rule: 'the same widening reads a camel-case call in a fenced diagram label, not only in a code block (F8)',
+      file: 'docs/DATA_FLOW.md',
+      plant: (text) => text.replace('HasID{Account ID Valid?}', 'HasID{isAccountIdValid(accountId)}'),
+      claim: 'isAccountIdValid',
+    },
+    {
+      rule: 'CONTROL: widening the vocabulary does not invent drift - a live camel-case spelling stays unreported, and a bare camel-case identifier in a diagram stays a mention',
+      file: 'docs/DATA_FLOW.md',
+      plant: (text) => text.replace('HasID{Account ID Valid?}', 'HasID{transfer(accountId) and forward(target, args) are the deployed camel spellings}'),
+      bare: (text) => text.replace('HasID{Account ID Valid?}', 'collectionActive{Account ID Valid?}'),
+      liveUnreported: ['transfer', 'forward'],
+      notAClaim: 'collectionActive',
+      survivesWithoutVocabulary: true,
+    },
+    {
       rule: 'the illustrative-language annotation must carry a reason, so it cannot be a bare silence',
       file: 'docs/ETHEREUM_AA_COMPARISON.md',
       plant: (text) => text.replace('reason: the document compares Neo with Ethereum, so every solidity block lists the Ethereum interface (IValidator, IPaymaster, the ECDSA helper), not a Neo entrypoint.', 'reason: short.'),
@@ -1423,6 +1452,17 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
         }
         continue;
       }
+      if (mutant.liveUnreported) {
+        // The control proves the widening is not a blanket "read every camel-case token": both
+        // names it plants are real ABI members (transfer, forward are exported by the pinned
+        // MockTransferTarget and NativeAuthority manifests), so a report here would be the
+        // vocabulary inventing drift rather than finding it.
+        for (const name of mutant.liveUnreported) {
+          assert.ok(!scan.claims[mutant.file]?.includes(name),
+            `${mutant.rule}: "${name}" is a deployed ABI member and the scan reported it as drift`);
+        }
+        continue;
+      }
       if (mutant.claim) {
         assert.ok(scan.claims[mutant.file]?.includes(mutant.claim),
           `${mutant.rule}: the planted drift survived; the scan reported ${JSON.stringify(scan.claims)}`);
@@ -1438,11 +1478,51 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
     } finally {
       fs.writeFileSync(target, original);
     }
+    // The bare-identifier half of the control: the mention side keeps the shape vocabulary, so a
+    // camel-case diagram label is neither a claim nor a recorded mention. It is planted and
+    // restored in the same breath so the check cannot leave the tree drifted.
+    if (mutant.bare) {
+      const bare = mutant.bare(original);
+      assert.notEqual(bare, original, `${mutant.rule}: the bare-label mutant did not change ${mutant.file}`);
+      fs.writeFileSync(target, bare);
+      try {
+        const scan = fenceScan();
+        assert.ok(!scan.claims[mutant.file]?.includes(mutant.notAClaim),
+          `${mutant.rule}: the mention side read the bare camel-case label "${mutant.notAClaim}" as a claim`);
+      } finally {
+        fs.writeFileSync(target, original);
+      }
+    }
+  }
+  // THE KILL CONTROLS, run as a second pass: with the widening switched off, each mutant that
+  // exists to exercise it must stop being reported. A mutant that still died would be killing
+  // something else, and its "kill" above would not be evidence for this rule (DEC-DS-9).
+  for (const mutant of mutants.filter((entry) => entry.survivesWithoutVocabulary === true
+    || entry.claim === 'listDeployedVerifiers' || entry.claim === 'isAccountIdValid')) {
+    const target = path.join(repoRoot, mutant.file);
+    const original = fs.readFileSync(target, 'utf8');
+    fs.writeFileSync(target, mutant.plant(original));
+    widenVocabulary.enabled = false;
+    try {
+      const scan = fenceScan();
+      assert.ok(!scan.claims[mutant.file]?.includes(mutant.claim),
+        `${mutant.rule}: the planted drift is still reported with the camel-case vocabulary switched off, so the mutant kills some other rule`);
+      for (const name of mutant.liveUnreported ?? []) {
+        assert.ok(!scan.claims[mutant.file]?.includes(name), `${mutant.rule}: the control reported "${name}"`);
+      }
+    } finally {
+      widenVocabulary.enabled = true;
+      fs.writeFileSync(target, original);
+    }
   }
   // the mutants leave the tree exactly as they found it
   for (const mutant of mutants) {
     const target = path.join(repoRoot, mutant.file);
-    assert.ok(!fs.readFileSync(target, 'utf8').includes('setLegacyVerifierAddress'), `${mutant.file} kept a planted drift`);
+    const text = fs.readFileSync(target, 'utf8');
+    for (const planted of [mutant.claim, mutant.mention, mutant.notAClaim, ...(mutant.liveUnreported ?? [])].filter(Boolean)) {
+      assert.ok(!text.includes(planted), `${mutant.file} kept a planted drift: ${planted}`);
+    }
+    assert.ok(!text.includes('setLegacyVerifierAddress'), `${mutant.file} kept a planted drift`);
   }
 });
 
