@@ -1619,6 +1619,229 @@ test('CU-210: each fenced rule is killed by its planted drift', () => {
   }
 });
 
+// =============================================================================================
+// CU-210 R3. Round two established that a comment is not a code position and used that to remove a
+// false claim rather than to grant an exemption. The rule it added was narrower than the property
+// it claimed: it cut ONE single-line marker out of each line on its own, so a fenced
+// `/* deadCall() */` was read as code and a valid document failed the gate. The rule is now the
+// property - no comment content of either kind is a claim, in any fence language the guard reads.
+//
+// Every shape below is planted alone on an unmutated document so the assertion that refuses it
+// names the shape, and every shape carries a per-shape control: the same fence also holds a dead
+// call in code position, which must be reported. A rule that silenced the whole fence would fail
+// that control instead of passing quietly, so no "kill" here can be an incidental one.
+//
+// >>> CU-210 R3 comment shapes
+// The matrix is written out HERE rather than read from the lexer's own table, so a shape cannot
+// pass by agreeing with the table it is supposed to test (DEC-DS-9). The test after the block is
+// the other direction: it refuses a table row that no shape plants.
+const R3_FILE = 'frontend/src/assets/docs/custom-verifiers.md';
+const R3_COMMENTED = 'gatherChildProofPackets(context, operation)';
+const R3_COMMENTED_NAME = 'gatherChildProofPackets';
+const R3_CONTROL = 'bulkVerifySignatures(context, operation);';
+const R3_CONTROL_NAME = 'bulkVerifySignatures';
+const R3_LINE_MARKERS = [
+  // `//` to end of line
+  ['csharp', '//'], ['cs', '//'], ['c', '//'], ['javascript', '//'], ['js', '//'],
+  ['typescript', '//'], ['ts', '//'], ['java', '//'], ['go', '//'], ['rust', '//'],
+  ['solidity', '//'], ['swift', '//'], ['kotlin', '//'], ['scala', '//'], ['php', '//'],
+  ['dot', '//'], ['graphviz', '//'],
+  // `#` to end of line
+  ['python', '#'], ['py', '#'], ['bash', '#'], ['shell', '#'], ['sh', '#'], ['zsh', '#'],
+  ['yaml', '#'], ['yml', '#'], ['toml', '#'], ['ini', '#'], ['dockerfile', '#'],
+  ['powershell', '#'], ['r', '#'], ['ruby', '#'], ['perl', '#'], ['graphql', '#'], ['php', '#'],
+  // a diagram language's own marker
+  ['mermaid', '%%'],
+];
+const R3_BLOCK_MARKERS = [
+  // `/* ... */` pairs that do not nest
+  ['csharp', '/*', '*/'], ['cs', '/*', '*/'], ['c', '/*', '*/'], ['javascript', '/*', '*/'],
+  ['js', '/*', '*/'], ['typescript', '/*', '*/'], ['ts', '/*', '*/'], ['java', '/*', '*/'],
+  ['go', '/*', '*/'], ['solidity', '/*', '*/'], ['kotlin', '/*', '*/'], ['scala', '/*', '*/'],
+  ['php', '/*', '*/'], ['dot', '/*', '*/'], ['graphviz', '/*', '*/'],
+  // `/* ... */` pairs that NEST, which is what these two languages' own grammar says
+  ['rust', '/*', '*/'], ['swift', '/*', '*/'],
+  // PowerShell's block comment is not a C-style pair
+  ['powershell', '<#', '#>'],
+];
+const r3Fence = (language, body) => `\n\`\`\`${language}\n${body}\n\`\`\`\n`;
+const R3_SHAPES = [
+  ...R3_LINE_MARKERS.map(([language, marker]) => ({
+    rule: `a "${marker}" single-line comment is not a code position in a ${language} fence`,
+    append: r3Fence(language, `${marker} ${R3_COMMENTED}\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  })),
+  ...R3_BLOCK_MARKERS.map(([language, open, close]) => ({
+    rule: `a "${open} ... ${close}" block comment is not a code position in a ${language} fence`,
+    append: r3Fence(language, `${open} ${R3_COMMENTED} ${close}\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  })),
+  {
+    rule: 'an unterminated block comment silences its own fence and does not leak into the next one',
+    append: r3Fence('csharp', `${R3_CONTROL}\n/* ${R3_COMMENTED}`) + r3Fence('csharp', R3_CONTROL),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a block comment that opens on one line and closes on a later one is one comment',
+    append: r3Fence('csharp', `var note = /* ${R3_COMMENTED}\n  still inside the comment */ 3;\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a nested block comment in rust is one comment, as that language nests them',
+    append: r3Fence('rust', `/* outer /* inner /* deepest */ */ ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a nested block comment in swift is one comment, as that language nests them',
+    append: r3Fence('swift', `/* outer /* inner */ ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a block comment in a language whose comments do not nest ends at the first close, and the name after it is code',
+    append: r3Fence('csharp', `/* outer /* inner */ ${R3_COMMENTED};`),
+    reported: R3_COMMENTED_NAME,
+  },
+  {
+    rule: 'a block comment containing a quote and an apostrophe is still one comment',
+    append: r3Fence('javascript', `/* it is the "child" helper's ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a block comment containing backslash escapes is still one comment',
+    append: r3Fence('javascript', `/* an escaped quote \\" and a newline \\n: ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a line that mixes code and a trailing block comment reads only the code',
+    append: r3Fence('csharp', `var count = 3; /* ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a line that mixes a leading block comment and a code position reads only the code',
+    append: r3Fence('javascript', `/* ${R3_COMMENTED} */ ${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a line that mixes code and a trailing single-line comment reads only the code',
+    append: r3Fence('bash', `echo counted  # ${R3_COMMENTED}\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a block-comment opener inside a string literal does not open a comment',
+    append: r3Fence('javascript', `const marker = "/*"; ${R3_COMMENTED};`),
+    reported: R3_COMMENTED_NAME,
+  },
+  {
+    rule: 'a single-line marker inside a string literal does not cut the line short',
+    append: r3Fence('javascript', `const url = 'https://example.invalid'; ${R3_CONTROL}`),
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a string literal holding a comment opener does not silence the comment after it',
+    append: r3Fence('javascript', `const marker = "/*"; /* ${R3_COMMENTED} */\n${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a plain text fence has no comment syntax, so its text stays a code position',
+    append: r3Fence('text', `// ${R3_COMMENTED}`),
+    reported: R3_COMMENTED_NAME,
+  },
+  {
+    rule: 'an untagged fence has no comment syntax, so its text stays a code position',
+    append: r3Fence('', `// ${R3_COMMENTED}`),
+    reported: R3_COMMENTED_NAME,
+  },
+  {
+    rule: 'a mermaid fence has no "//" comment syntax, so a call after it stays a code position',
+    append: r3Fence('mermaid', `// ${R3_COMMENTED}`),
+    reported: R3_COMMENTED_NAME,
+  },
+];
+for (const shape of R3_SHAPES) {
+  test(`CU-210 R3: ${shape.rule}`, () => {
+    const target = path.join(repoRoot, R3_FILE);
+    const original = fs.readFileSync(target, 'utf8');
+    const planted = `${original.replace(/\n*$/, '\n')}${shape.append}`;
+    assert.notEqual(planted, original, `${shape.rule}: the shape did not change ${R3_FILE}`);
+    fs.writeFileSync(target, planted);
+    let scan;
+    try {
+      scan = fenceScan();
+    } finally {
+      fs.writeFileSync(target, original);
+    }
+    assert.equal(fs.readFileSync(target, 'utf8'), original,
+      `${shape.rule}: ${R3_FILE} was not restored to its pre-shape bytes`);
+    const claims = scan.claims[R3_FILE] ?? [];
+    const mentions = scan.mentions[R3_FILE] ?? [];
+    if (shape.reported) {
+      assert.ok(claims.includes(shape.reported),
+        `${shape.rule}: the code position beside the comment was not read at all, so a silence here would be vacuous; the scan reported ${JSON.stringify(claims)}`);
+    }
+    if (shape.silent) {
+      assert.ok(!claims.includes(shape.silent),
+        `${shape.rule}: the guard read comment content as a live claim; the scan reported ${JSON.stringify(claims)}`);
+      assert.ok(!mentions.includes(shape.silent),
+        `${shape.rule}: the guard recorded comment content as a justified mention`);
+    }
+  });
+}
+// <<< CU-210 R3 comment shapes
+
+// The other direction of the matrix: a comment form the lexer names but no shape plants is an
+// untested rule, and a shape for a form the lexer does not implement is a test of nothing. The two
+// are compared here rather than one being derived from the other, so adding a row to the lexer's
+// table without planting its shape fails, and planting a marker the lexer does not strip fails too.
+test('CU-210 R3: the lexer names exactly the comment forms the shapes plant', () => {
+  const planted = new Map();
+  for (const [language, marker] of R3_LINE_MARKERS) planted.set(`${language}|line|${marker}`, false);
+  for (const [language, open, close] of R3_BLOCK_MARKERS) planted.set(`${language}|block|${open} ${close}`, false);
+  let declared = 0;
+  for (const [language, syntax] of COMMENT_SYNTAX) {
+    for (const marker of syntax.line ?? []) {
+      declared += 1;
+      assert.ok(planted.has(`${language}|line|${marker}`),
+        `the lexer strips "${marker}" in a ${language} fence and no shape plants it`);
+    }
+    if (syntax.block) {
+      declared += 1;
+      assert.ok(planted.has(`${language}|block|${syntax.block.join(' ')}`),
+        `the lexer strips ${syntax.block.join(' ... ')} in a ${language} fence and no shape plants it`);
+    }
+    if (syntax.nest) {
+      assert.ok(R3_SHAPES.some((shape) => shape.rule.includes(`nested block comment in ${language}`)),
+        `the lexer nests block comments in ${language} and no shape plants a nested one`);
+    }
+  }
+  for (const [language, marker] of R3_LINE_MARKERS) {
+    const syntax = COMMENT_SYNTAX.get(language);
+    assert.ok(syntax?.line?.includes(marker),
+      `a shape plants "${marker}" in a ${language} fence and the lexer does not strip it`);
+  }
+  for (const [language, open, close] of R3_BLOCK_MARKERS) {
+    const syntax = COMMENT_SYNTAX.get(language);
+    assert.deepEqual(syntax?.block, [open, close],
+      `a shape plants ${open} ... ${close} in a ${language} fence and the lexer does not strip that pair`);
+  }
+  // The count is stated so that an emptied table cannot make the loops above pass vacuously.
+  assert.equal(declared, planted.size,
+    `the lexer declares ${declared} comment forms and the shapes plant ${planted.size}`);
+  assert.ok(R3_LINE_MARKERS.length >= 35 && R3_BLOCK_MARKERS.length >= 18,
+    `the shape matrix shrank: ${R3_LINE_MARKERS.length} single-line and ${R3_BLOCK_MARKERS.length} block forms`);
+});
+
 // The rule CU-210 found case-blind (its finding F6): the oracle asked the deployed-ABI map and the
 // source scan in the same breath, so a document that wrote the C# spelling of an exported member was
 // judged live. The oracle now keys on the artifact that spells a name (DS-CU-211, DEC-DS-5), and this
