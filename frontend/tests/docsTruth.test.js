@@ -363,6 +363,29 @@ function failures() {
   return problems;
 }
 
+// DS-CU-202 finding F3, filed again as RV-DSCU202R1-r1 (minor): the name patterns read INLINE-CODE
+// SPANS only, so a dead name written as raw code inside a fenced block is invisible. The boundary is
+// measured in both directions here, and the guard has to declare it where the measurement happens,
+// because the ratchet's count is a floor while the boundary stands. Row CU-210 owns the fenced
+// measurement (DS-CU-210-20261009.md); this test does not approve the boundary, it refuses to let it
+// stay silent.
+test('CU-202: the ratchet reads inline-code spans and declares the boundary it does not cross', () => {
+  // The boundary: raw code, the shape a fenced block carries, is not a span.
+  assert.deepEqual(callableNames('const accountId = executeLegacyControlThing(accountId);'), [],
+    'the inline reader must not read raw code as a name reference; if this fails the boundary moved and every count below it is wrong');
+  // The same dead name inside one inline span is read, so the boundary is the span, not the name.
+  assert.deepEqual(
+    callableNames('stop calling `executeLegacyControlThing(accountId)`; it is gone').map((entry) => entry.name),
+    ['executeLegacyControlThing'],
+    'the same name inside an inline span must be read, or the declared boundary is not where the guard reads');
+  // The declaration, at the measurement site: deleting it has to fail here rather than silently widen
+  // the ratchet's claim to be the repository's drift.
+  const declaration = read('frontend/tests/docsTruth.test.js').match(/\/\/ MEASUREMENT BOUNDARY[\s\S]*?(?=\n\n)/);
+  assert.ok(declaration, 'the guard must declare the inline-span measurement boundary where it measures (DS-CU-202 F3)');
+  assert.match(declaration[0], /inline-code spans only/, 'the declaration must state the boundary it draws');
+  assert.match(declaration[0], /CU-210/, 'the declaration must name the row that owns the fenced measurement');
+});
+
 test('CU-163: the current-runtime documents state only what the code and the deployed artifacts decide', () => {
   const problems = failures();
   assert.deepEqual(problems, [], `documentation drift:\n${problems.join('\n')}`);
