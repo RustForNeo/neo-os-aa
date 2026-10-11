@@ -357,18 +357,33 @@ function isCallableName(name) {
   return shapedLikeEntrypoint(name) || divergentSpellings.has(name);
 }
 
-// The names a single code span contributes. A span is a CALL when it ends in `)`: its head (up to
-// the first `(`) is a dotted identifier and its arguments are not names. A span is a single NAME
-// when it has no whitespace and no parentheses - `MultiSigVerifier.ClearAccount`, `VerifyAdmin`. A
-// span is a name LIST only when its words are separated by a comma, semicolon or slash, which is how
-// `createListing, updateListingPrice` and `VerifyAdmin, ClearAccount` are written. Anything else is
-// PROSE and contributes nothing: `Transfer amount exceeds subscription` (the quoted fault message at
-// docs/PLUGIN_MATRIX.md:124) names no callable even though its first word is a member of the class,
-// and a span that is only `Transfer(` is a fragment, not a name.
+// The names a single code span contributes. A span is a CALL when it is a dotted identifier with one
+// parenthesised argument list: its head (up to the first `(`) is the name and its arguments are not
+// names. A span is a single NAME when it has no whitespace and no parentheses -
+// `MultiSigVerifier.ClearAccount`, `VerifyAdmin`. A span is a name LIST only when its words are
+// separated by a comma, semicolon or slash, which is how `createListing, updateListingPrice` and
+// `VerifyAdmin, ClearAccount` are written. Anything else is PROSE and contributes nothing:
+// `Transfer amount exceeds subscription` (the quoted fault message at docs/PLUGIN_MATRIX.md:124)
+// names no callable even though its first word is a member of the class, and a span that is only
+// `Transfer(` is a fragment, not a name.
 //
 // The base rule split every span on whitespace, which is why it read the first word of a sentence as
 // a name whenever the shape vocabulary happened to match it, and why a call whose parentheses were
 // split across two spans lost its argument list. DS-CU-212 section 4 records both.
+//
+// SENTENCE PUNCTUATION IS NOT PART OF THE NAME (CU-212 R2, after RV-DSCU212R1-r1). The rule above
+// first read the call form as "the last character of the span is `)`", and the last character is not
+// the property that decides what a span is: the base tokenizer discarded everything from the first
+// `(` to the end of the span, so `InitiateEscape(accountId);` - the form a sentence gives a call,
+// and the form the ratchet exists to catch - was read there and falls into the PROSE branch here,
+// where no rule below can see it. The tail is removed first and the span is classified on what is
+// left, so the classification is a property of the span's shape rather than of the character it
+// happens to end with; the same accident emptied a name list that ends with its own separator. The
+// removal is ONE-DIRECTIONAL by construction - it can only move a span out of PROSE into the call,
+// name or list form, never the other way - and the R2 test asserts that over every scanned line, so
+// no name the r1 parser read can be dropped by it (DEC-DS-4).
+const SENTENCE_TAIL = /[.,;:!?]+$/;
+const stripSentenceTail = { enabled: true };
 function spanSegments(span) {
   if (span.endsWith(')')) {
     const head = span.slice(0, Math.max(span.indexOf('('), 0)).trim();
@@ -1747,4 +1762,106 @@ test('CU-211: each case rule is killed by its planted drift', () => {
       assert.ok(!text.includes(name), `${mutant.file} kept a planted drift: ${name}`);
     }
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// CU-212 R2, after the r1 NO-GO (RV-DSCU212R1-r1 finding F1). The span rule of section 3 read the
+// call form as "the last character of the span is `)`", so `InitiateEscape(accountId);` - an
+// ordinary documented call at the end of a sentence - contributed nothing. The consequence was
+// measured before this test was written and is recorded in DS-CU-212-20261009.md section "Round 2
+// after the NO-GO": planted in a scanned document at the r1 head, that drift leaves the ratchet
+// green (12/12, no ledger entry, rc=0), while the same name without the semicolon is reported as
+// `spelling:InitiateEscape->initiateEscape`; at the base (790cef9, the CU-211 head) the punctuated
+// form was reported. The name is not a live one that the oracle would be wrong to report: no
+// manifest exports `InitiateEscape` and `deployedSpelling` maps it to the `initiateEscape` the
+// manifests do export, which is why the ledger already records that entry for
+// docs/SECURITY_AUDIT_RESULTS.md (DEC-DS-5). This mutant is therefore the reviewer's, and the
+// demanded behaviour is the correct one.
+//
+// The reviewer's fixed property is asserted in three parts: the parser reads the punctuated forms,
+// a planted punctuated drift is recorded, and the rule that does it can be switched off to show the
+// drift surviving (a rule that cannot be removed cannot be shown to be the thing doing the work,
+// the same control CU-210 R2 used). The fourth part is the DEC-DS-4 direction: the rule-disabled
+// parser IS the r1 parser, and every name it reads in every scanned line is still read with the
+// rule on, so the widening cannot have dropped anything the 55-entry ledger records.
+test('CU-212 R2: a call the sentence punctuates is read, and its drift is reported', () => {
+  // 1. The end-to-end defect the reviewer measured: an ordinary documented call at the end of a
+  //    sentence, planted in a scanned document, must be recorded. The ledger for that document is
+  //    exactly that one entry - an incidental entry elsewhere could not pass for the kill, and a
+  //    recorded entry that disappeared could not hide.
+  const auditDoc = 'docs/PROTOCOL_COMPLETENESS_AUDIT.md';
+  const target = path.join(repoRoot, auditDoc);
+  const original = fs.readFileSync(target, 'utf8');
+  const planted = original.replace('### 6. Market Escrow',
+    '`InitiateEscape(accountId);` starts the backup-owner recovery window.\n\n### 6. Market Escrow');
+  assert.notEqual(planted, original, 'the mutant did not change the document');
+  const recordedEntry = 'spelling:InitiateEscape->initiateEscape';
+  fs.writeFileSync(target, planted);
+  try {
+    const reported = ratchetDebt()[auditDoc] ?? [];
+    assert.ok(reported.includes(recordedEntry),
+      `the planted punctuated call was not recorded as ${recordedEntry}; the scan reported ${JSON.stringify(reported)}`);
+    assert.deepEqual(reported, [recordedEntry], 'the planted punctuated call changed more of the ledger than itself');
+  } finally {
+    fs.writeFileSync(target, original);
+  }
+
+  // 2. The parser's contract, on the reviewer's own span and the other tails a sentence gives a call.
+  for (const span of ['InitiateEscape(accountId);', 'InitiateEscape(accountId).', 'InitiateEscape(accountId),']) {
+    assert.deepEqual(callableNames(`the guide says \`${span}\``).map(({ name }) => name), ['InitiateEscape'],
+      `a call the sentence punctuates is not read: \`${span}\``);
+  }
+  // 3. The same dead end for a name list that ends with its own separator: the last character is not
+  //    what decides a span, and the base read both names of `createListing, updateListingPrice;`.
+  for (const span of ['CreateListing, UpdateListingPrice;', 'CreateListing, UpdateListingPrice,', 'CreateListing, UpdateListingPrice/']) {
+    assert.deepEqual(callableNames(`see \`${span}\``).map(({ name }) => name), ['CreateListing', 'UpdateListingPrice'],
+      `a name list that ends with its separator is not read: \`${span}\``);
+  }
+  // 4. Removing the tail is not the same as not classifying the span: a sentence that ends in a
+  //    punctuated call is still PROSE, because the head before the first `(` is not a dotted name.
+  assert.deepEqual(callableNames('the sentence is `the guide says InitiateEscape(accountId);`'), [],
+    'a sentence that ends in a punctuated call is read as a name');
+
+  // 5. THE KILL CONTROL: with the punctuation rule switched off, the same plant must survive. If it
+  //    did not, the mutant would be killed by something else and the rule would be decoration.
+  stripSentenceTail.enabled = false;
+  try {
+    fs.writeFileSync(target, planted);
+    assert.ok(!(ratchetDebt()[auditDoc] ?? []).includes(recordedEntry),
+      'the planted drift survived without the punctuation rule; the control did not kill it');
+  } finally {
+    fs.writeFileSync(target, original);
+    stripSentenceTail.enabled = true;
+  }
+
+  // 6. The direction of the widening (DEC-DS-4): with the rule off, `callableNames` is the r1 parser,
+  //    so this compares the two rules over every line of every document the ratchet scans. A name the
+  //    r1 parser read and the R2 parser does not would be enforcement silently lost.
+  const scanned = tracked.filter((file) => file.endsWith('.md')
+    && !file.startsWith('docs/proposals/') && !file.startsWith('docs/reports/') && !file.startsWith('docs/plans/')
+    && !CURRENT_DOCS.includes(file));
+  const lost = [];
+  let linesScanned = 0;
+  for (const file of scanned) {
+    for (const line of read(file).split('\n')) {
+      linesScanned += 1;
+      stripSentenceTail.enabled = false;
+      const before = new Set(callableNames(line).map(({ name }) => name));
+      stripSentenceTail.enabled = true;
+      const after = new Set(callableNames(line).map(({ name }) => name));
+      for (const name of before) if (!after.has(name)) lost.push(`${file}: ${name}`);
+    }
+  }
+  assert.deepEqual(lost, [], `the punctuation rule dropped names the r1 parser read:\n${lost.join('\n')}`);
+  assert.ok(linesScanned > 10000, `the direction check scanned only ${linesScanned} lines, so it proves little`);
+
+  // 7. On today's corpus the widening moves no entry: the ledger is the same 7 files / 55 names the
+  //    r1 head recorded, so the fix adds enforcement rather than changing what is recorded.
+  const found = ratchetDebt();
+  const entries = Object.values(found).flat();
+  assert.equal(entries.length, 55, `the punctuated-call rule changed the ledger size: ${entries.length} entries`);
+  assert.equal(entries.filter((entry) => entry.startsWith('spelling:')).length, 48, 'the spelling bucket changed size');
+  assert.equal(entries.filter((entry) => entry.startsWith('entrypoint:')).length, 7, 'the entrypoint bucket changed size');
+  assert.equal(Object.keys(found).length, 7, 'the ledger no longer covers 7 files');
+  assert.ok(!entries.includes(`entrypoint:InitiateEscape`), 'the punctuated call was recorded in both buckets');
 });
