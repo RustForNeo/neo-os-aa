@@ -1137,6 +1137,10 @@ const V2_FENCE_MENTIONS = {
     names: ['ValidateSig', 'validateUserOpLogic'],
     reason: 'Bare mermaid node labels in the diagram that maps the Ethereum validation path onto the Neo one (ValidateSig stands for the signature-check stage, validateUserOpLogic for the Ethereum validator logic); neither is written as a call, and the solidity blocks of the same document are already declared illustrative.',
   },
+  'docs/NATIVE_ACCOUNT_TRANSACTION_GUARDS.md': {
+    names: ['cancelModuleCall'],
+    reason: 'The native account work landed on the default branch after this chain forked; its text fence is the NeoVM script the signed application runs, and the name is the AccountManagement method that script pushes as a string, so the document names the call rather than making it.',
+  },
   'frontend/src/assets/docs/data-flow.md': {
     names: ['CallCustom', 'HasID'],
     reason: 'The rendered copy of the same flowchart; the rendered documents are required to stay in step with their source, so its mention list stands or falls with docs/DATA_FLOW.md.',
