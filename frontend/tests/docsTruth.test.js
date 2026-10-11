@@ -1887,6 +1887,17 @@ const R3_SHAPES = [
     reported: R3_CONTROL_NAME,
   },
   {
+    rule: 'a code position after a PowerShell block comment on the same line is still read',
+    append: r3Fence('powershell', `<# ${R3_COMMENTED} #> ${R3_CONTROL}`),
+    silent: R3_COMMENTED_NAME,
+    reported: R3_CONTROL_NAME,
+  },
+  {
+    rule: 'a mermaid fence has no block-comment syntax, so a call inside "/* */" stays a code position',
+    append: r3Fence('mermaid', `/* ${R3_COMMENTED} */`),
+    reported: R3_COMMENTED_NAME,
+  },
+  {
     rule: 'a plain text fence has no comment syntax, so its text stays a code position',
     append: r3Fence('text', `// ${R3_COMMENTED}`),
     reported: R3_COMMENTED_NAME,
